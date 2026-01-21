@@ -9,6 +9,11 @@ authors = [
     { name = "Haymaker Team" }
 ]
 keywords = ["azure", "m365", "orchestration", "telemetry", "agents"]
+
+[project.urls]
+Homepage = "https://github.com/rysweet/agent-haymaker"
+Repository = "https://github.com/rysweet/agent-haymaker"
+Issues = "https://github.com/rysweet/agent-haymaker/issues"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

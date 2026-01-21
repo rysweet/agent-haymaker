@@ -53,7 +53,7 @@ pip install agent-haymaker
 
 ```bash
 # From git repository
-haymaker workload install https://github.com/org/haymaker-m365-workloads
+haymaker workload install https://github.com/rysweet/haymaker-m365-workloads
 
 # From local path
 haymaker workload install ./my-workload
@@ -187,14 +187,14 @@ targets:
 
 | Workload | Description | Repository |
 |----------|-------------|------------|
-| `azure-infrastructure` | Azure scenario execution with goal-seeking agents | haymaker-azure-workloads |
-| `m365-knowledge-worker` | M365 knowledge worker simulation | haymaker-m365-workloads |
+| `azure-infrastructure` | Azure scenario execution with goal-seeking agents | [haymaker-azure-workloads](https://github.com/rysweet/haymaker-azure-workloads) |
+| `m365-knowledge-worker` | M365 knowledge worker simulation | [haymaker-m365-workloads](https://github.com/rysweet/haymaker-m365-workloads) |
 
 ## Development
 
 ```bash
 # Clone
-git clone https://github.com/org/agent-haymaker
+git clone https://github.com/rysweet/agent-haymaker
 cd agent-haymaker
 
 # Install dev dependencies
