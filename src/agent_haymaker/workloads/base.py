@@ -6,9 +6,10 @@ CLI commands that work with any workload through this interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Any
+from collections.abc import AsyncIterator
+from typing import Any
 
-from .models import DeploymentState, DeploymentConfig, CleanupReport
+from .models import CleanupReport, DeploymentConfig, DeploymentState
 
 
 class WorkloadBase(ABC):

@@ -26,11 +26,11 @@ Quick start:
 """
 
 from .workloads import (
-    WorkloadBase,
-    WorkloadRegistry,
-    DeploymentState,
     DeploymentConfig,
+    DeploymentState,
+    WorkloadBase,
     WorkloadManifest,
+    WorkloadRegistry,
 )
 
 # LLM abstraction - lazy imports to avoid requiring LLM deps for basic usage

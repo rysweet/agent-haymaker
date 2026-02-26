@@ -5,13 +5,13 @@ work across all workload types.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class DeploymentStatus(str, Enum):
+class DeploymentStatus(StrEnum):
     """Universal deployment status values."""
 
     PENDING = "pending"
@@ -52,9 +52,13 @@ class DeploymentConfig(BaseModel):
     """
 
     workload_name: str = Field(..., description="Name of workload to deploy")
-    duration_hours: int | None = Field(default=None, description="Duration in hours (None = indefinite)")
+    duration_hours: int | None = Field(
+        default=None, description="Duration in hours (None = indefinite)"
+    )
     tags: dict[str, str] = Field(default_factory=dict, description="Tags for tracking")
-    workload_config: dict[str, Any] = Field(default_factory=dict, description="Workload-specific config")
+    workload_config: dict[str, Any] = Field(
+        default_factory=dict, description="Workload-specific config"
+    )
 
 
 class WorkloadManifest(BaseModel):
@@ -78,7 +82,9 @@ class WorkloadManifest(BaseModel):
     extensions: dict[str, Any] = Field(default_factory=dict, description="CLI/API extensions")
 
     # Target requirements
-    targets: list[dict[str, Any]] = Field(default_factory=list, description="Target tenant requirements")
+    targets: list[dict[str, Any]] = Field(
+        default_factory=list, description="Target tenant requirements"
+    )
 
     class Config:
         populate_by_name = True
