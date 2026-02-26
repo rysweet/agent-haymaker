@@ -1,6 +1,6 @@
 [project]
 name = "agent-haymaker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Universal workload orchestration platform for Azure and M365 telemetry generation"
 readme = "README.md"
 license = { text = "MIT" }
@@ -9,11 +9,6 @@ authors = [
     { name = "Haymaker Team" }
 ]
 keywords = ["azure", "m365", "orchestration", "telemetry", "agents"]
-
-[project.urls]
-Homepage = "https://github.com/rysweet/agent-haymaker"
-Repository = "https://github.com/rysweet/agent-haymaker"
-Issues = "https://github.com/rysweet/agent-haymaker/issues"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,7 +17,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-
 dependencies = [
     "click>=8.1.0",
     "pydantic>=2.0.0",
@@ -31,6 +25,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+llm = [
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+    "azure-ai-inference>=1.0.0b9",
+    "azure-identity>=1.14.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -39,6 +39,11 @@ dev = [
     "pyright>=1.1.0",
     "pre-commit>=3.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/rysweet/agent-haymaker"
+Repository = "https://github.com/rysweet/agent-haymaker"
+Issues = "https://github.com/rysweet/agent-haymaker/issues"
 
 [project.scripts]
 haymaker = "agent_haymaker.cli:main"

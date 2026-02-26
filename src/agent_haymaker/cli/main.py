@@ -18,8 +18,7 @@ from typing import Any
 
 import click
 
-from ..workloads import WorkloadRegistry, DeploymentConfig
-
+from ..workloads import DeploymentConfig, WorkloadRegistry
 
 # Global registry instance
 _registry: WorkloadRegistry | None = None
@@ -170,7 +169,9 @@ def deploy(
 
 @cli.command()
 @click.argument("deployment_id")
-@click.option("--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text")
+@click.option(
+    "--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text"
+)
 def status(deployment_id: str, output_format: str) -> None:
     """Get deployment status.
 
@@ -215,8 +216,12 @@ def status(deployment_id: str, output_format: str) -> None:
 @click.option("--workload", "-w", help="Filter by workload name")
 @click.option("--status", "-s", help="Filter by status")
 @click.option("--limit", "-l", type=int, default=20, help="Maximum results")
-@click.option("--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text")
-def list_deployments(workload: str | None, status: str | None, limit: int, output_format: str) -> None:
+@click.option(
+    "--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text"
+)
+def list_deployments(
+    workload: str | None, status: str | None, limit: int, output_format: str
+) -> None:
     """List all deployments.
 
     \b
@@ -252,6 +257,7 @@ def list_deployments(workload: str | None, status: str | None, limit: int, outpu
 
     if output_format == "json":
         import json
+
         click.echo(json.dumps([d.model_dump() for d in all_deployments], indent=2, default=str))
     else:
         click.echo(f"{'ID':<20} {'Workload':<25} {'Status':<12} {'Phase':<15}")
@@ -288,9 +294,9 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
                 # Check if deployment exists
                 run_async(workload.get_status(deployment_id))
 
-                # Stream logs
-                async def stream_logs() -> None:
-                    async for line in workload.get_logs(deployment_id, follow=follow, lines=lines):
+                # Stream logs - capture workload in closure
+                async def stream_logs(wl=workload) -> None:
+                    async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
                         click.echo(line.rstrip())
 
                 run_async(stream_logs())
