@@ -261,6 +261,10 @@ ruff check src/
 pyright
 ```
 
+## Documentation
+
+- [LLM Provider Configuration Guide](docs/llm-providers.md) - Detailed provider setup, async usage, error handling, and custom providers
+
 ## License
 
 MIT
