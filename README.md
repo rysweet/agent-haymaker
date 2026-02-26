@@ -101,6 +101,59 @@ haymaker list --workload m365-knowledge-worker
 haymaker list --status running
 ```
 
+## LLM Integration
+
+Agent Haymaker includes a multi-provider LLM abstraction layer that workloads can use for AI-powered content generation, adaptive agents, and intelligent operations.
+
+### Supported Providers
+
+| Provider | Models | Authentication |
+|----------|--------|----------------|
+| Anthropic Claude | Claude Sonnet, Opus | API key |
+| Azure OpenAI | GPT-4, GPT-4o | API key or managed identity |
+| Azure AI Foundry | Llama, Mistral, Phi | API key or managed identity |
+
+### Install LLM Dependencies
+
+```bash
+pip install agent-haymaker[llm]
+```
+
+### Usage
+
+```python
+from agent_haymaker.llm import create_llm_client, LLMConfig, LLMMessage
+
+# Configure from environment variables
+config = LLMConfig.from_env()
+client = create_llm_client(config)
+
+# Generate content
+messages = [LLMMessage(role="user", content="Write a professional email about Q4 results")]
+response = client.create_message(messages, system="You are a business writer.")
+print(response.content)
+```
+
+### Configuration
+
+Set environment variables (see `.env.example`):
+
+```bash
+# Anthropic
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Azure OpenAI (with managed identity)
+export LLM_PROVIDER=azure_openai
+export AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
+export AZURE_OPENAI_DEPLOYMENT=gpt-4
+
+# Azure AI Foundry
+export LLM_PROVIDER=azure_ai_foundry
+export AZURE_AI_FOUNDRY_ENDPOINT=https://myendpoint.inference.ai.azure.com
+export AZURE_AI_FOUNDRY_MODEL=meta-llama-3
+```
+
 ## Creating a Workload
 
 Workloads are Python packages that implement the `WorkloadBase` interface.

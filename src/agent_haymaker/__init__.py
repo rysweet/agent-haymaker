@@ -33,7 +33,10 @@ from .workloads import (
     WorkloadManifest,
 )
 
-__version__ = "0.1.0"
+# LLM abstraction - lazy imports to avoid requiring LLM deps for basic usage
+# Use: from agent_haymaker.llm import create_llm_client, LLMConfig
+
+__version__ = "0.2.0"
 
 __all__ = [
     "WorkloadBase",
