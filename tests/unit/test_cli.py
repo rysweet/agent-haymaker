@@ -327,6 +327,55 @@ class TestStartCommand:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_start_success(self, mock_get_registry):
+        """Start succeeds for a stopped deployment."""
+        mock_wl = _make_mock_workload()
+        mock_wl.get_status = AsyncMock(
+            return_value=DeploymentState(
+                deployment_id="dep-test-001",
+                workload_name="test-workload",
+                status=DeploymentStatus.STOPPED,
+            )
+        )
+        mock_wl.start = AsyncMock(return_value=True)
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["start", "dep-test-001"])
+        assert result.exit_code == 0
+        assert "started" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_start_already_running(self, mock_get_registry):
+        """Start exits early when deployment is already running."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["start", "dep-test-001"])
+        assert result.exit_code == 0
+        assert "already running" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_start_not_implemented(self, mock_get_registry):
+        """Start shows error when workload raises NotImplementedError."""
+        mock_wl = _make_mock_workload()
+        mock_wl.get_status = AsyncMock(
+            return_value=DeploymentState(
+                deployment_id="dep-test-001",
+                workload_name="test-workload",
+                status=DeploymentStatus.STOPPED,
+            )
+        )
+        mock_wl.start = AsyncMock(
+            side_effect=NotImplementedError(
+                "Workload test-workload does not implement start/resume."
+            )
+        )
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["start", "dep-test-001"])
+        assert result.exit_code != 0
+
 
 class TestCleanupCommand:
     """Tests for the cleanup command."""

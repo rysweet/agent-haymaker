@@ -62,10 +62,11 @@ class WorkloadBase(ABC):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Enforce that concrete subclasses define a unique name."""
         super().__init_subclass__(**kwargs)
-        # Skip enforcement on abstract intermediary classes
-        if not getattr(cls, "__abstractmethods__", None):
-            if cls.name == "base":
-                raise TypeError(f"{cls.__name__} must define a unique 'name' class attribute")
+        from abc import ABC
+
+        # If ABC is in the direct bases, it's an abstract intermediary -- skip
+        if ABC not in cls.__bases__ and cls.name == "base":
+            raise TypeError(f"{cls.__name__} must define a unique 'name' class attribute")
 
     # =========================================================================
     # REQUIRED: Workloads MUST implement these abstract methods
@@ -228,10 +229,9 @@ class WorkloadBase(ABC):
         if self._platform:
             await self._platform.save_deployment_state(state)
         else:
-            deployment_id = getattr(state, "deployment_id", None) if state else None
             logging.getLogger(__name__).debug(
                 "No platform configured, state not persisted for %s",
-                deployment_id,
+                state.deployment_id,
             )
 
     async def load_state(self, deployment_id: str) -> DeploymentState | None:

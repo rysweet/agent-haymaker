@@ -260,7 +260,11 @@ def start(deployment_id: str) -> None:
             click.echo("Deployment is already running.")
             return
 
-        success = await wl.start(deployment_id)
+        try:
+            success = await wl.start(deployment_id)
+        except NotImplementedError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
         if success:
             click.echo(f"Deployment {deployment_id} started.")
         else:

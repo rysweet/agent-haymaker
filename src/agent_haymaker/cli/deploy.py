@@ -109,26 +109,28 @@ def deploy(
 
     # Parse CLI workload config (overrides file config)
     for c in config:
-        if "=" in c:
-            k, v = c.split("=", 1)
-            # Try to parse as int/float/bool
+        if "=" not in c:
+            raise click.UsageError(f"Invalid --config format {c!r}. Expected key=value")
+        k, v = c.split("=", 1)
+        # Try to parse as int/float/bool
+        try:
+            workload_config[k] = int(v)
+        except ValueError:
             try:
-                workload_config[k] = int(v)
+                workload_config[k] = float(v)
             except ValueError:
-                try:
-                    workload_config[k] = float(v)
-                except ValueError:
-                    if v.lower() in ("true", "false"):
-                        workload_config[k] = v.lower() == "true"
-                    else:
-                        workload_config[k] = v
+                if v.lower() in ("true", "false"):
+                    workload_config[k] = v.lower() == "true"
+                else:
+                    workload_config[k] = v
 
     # Parse tags
     tags = {}
     for t in tag:
-        if "=" in t:
-            k, v = t.split("=", 1)
-            tags[k] = v
+        if "=" not in t:
+            raise click.UsageError(f"Invalid --tag format {t!r}. Expected key=value")
+        k, v = t.split("=", 1)
+        tags[k] = v
 
     # CLI duration takes precedence over file duration
     effective_duration = duration if duration is not None else file_duration
@@ -164,6 +166,9 @@ def deploy(
     try:
         deployment_id = run_async(workload.deploy(deploy_config))
         click.echo(f"Deployment started: {deployment_id}")
-    except (DeploymentError, Exception) as e:
-        click.echo(f"Error: Deployment failed: {e}")
+    except DeploymentError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Unexpected failure: {e}", err=True)
         sys.exit(1)

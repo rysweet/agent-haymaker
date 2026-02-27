@@ -41,7 +41,15 @@ class AnthropicProvider(BaseLLMProvider):
         temperature: float = 0.7,
     ) -> LLMResponse:
         try:
-            formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+            # Extract system messages (Anthropic API rejects role="system" in messages)
+            system_parts = [msg.content for msg in messages if msg.role == "system"]
+            non_system = [msg for msg in messages if msg.role != "system"]
+            if system_parts:
+                combined = "\n\n".join(filter(None, [system] + system_parts))
+            else:
+                combined = system
+
+            formatted_messages = [{"role": msg.role, "content": msg.content} for msg in non_system]
 
             kwargs = {
                 "model": self._model,
@@ -49,8 +57,8 @@ class AnthropicProvider(BaseLLMProvider):
                 "temperature": temperature,
                 "messages": formatted_messages,
             }
-            if system:
-                kwargs["system"] = system
+            if combined:
+                kwargs["system"] = combined
 
             response = self._client.messages.create(**kwargs)
 
