@@ -20,16 +20,17 @@ import click
 
 from ..workloads import WorkloadRegistry
 
+# Global registry instance
+_registry: WorkloadRegistry | None = None
+
 
 def get_registry() -> WorkloadRegistry:
-    """Get the workload registry from Click context, or create one."""
-    ctx = click.get_current_context(silent=True)
-    if ctx and ctx.obj and "registry" in ctx.obj:
-        return ctx.obj["registry"]
-    # Fallback for non-Click contexts (testing, programmatic use)
-    registry = WorkloadRegistry()
-    registry.discover_workloads()
-    return registry
+    """Get or create the workload registry."""
+    global _registry
+    if _registry is None:
+        _registry = WorkloadRegistry()
+        _registry.discover_workloads()
+    return _registry
 
 
 def run_async(coro: Any) -> Any:
@@ -39,8 +40,7 @@ def run_async(coro: Any) -> Any:
 
 @click.group()
 @click.version_option(version=pkg_version("agent-haymaker"), prog_name="agent-haymaker")
-@click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli() -> None:
     """Agent Haymaker - Universal workload orchestration platform.
 
     Deploy and manage workloads that generate telemetry for Azure tenants
@@ -60,10 +60,7 @@ def cli(ctx: click.Context) -> None:
         haymaker workload list
         haymaker workload install <git-url>
     """
-    ctx.ensure_object(dict)
-    registry = WorkloadRegistry()
-    registry.discover_workloads()
-    ctx.obj["registry"] = registry
+    pass
 
 
 # Import command modules to register commands with the cli group.
