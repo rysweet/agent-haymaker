@@ -18,6 +18,14 @@ class TestLLMMessage:
         msg = LLMMessage(role="system", content="You are helpful")
         assert msg.role == "system"
 
+    def test_message_accepts_any_role(self):
+        """LLMMessage intentionally accepts any role string.
+
+        Validation happens at provider level, not at the message type level.
+        """
+        msg = LLMMessage(role="custom_role", content="test")
+        assert msg.role == "custom_role"
+
 
 class TestLLMResponse:
     def test_create_response(self):
