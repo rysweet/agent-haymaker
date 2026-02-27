@@ -14,47 +14,41 @@ from agent_haymaker.llm.types import LLMMessage, LLMResponse
 class TestAnthropicProvider:
     """Tests for AnthropicProvider initialization and interface."""
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_init_creates_clients(self, mock_sync, mock_async):
+    def test_init_creates_clients(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")
         AnthropicProvider(config)
 
         mock_sync.assert_called_once()
-        mock_async.assert_called_once()
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_default_model(self, mock_sync, mock_async):
+    def test_default_model(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")
         provider = AnthropicProvider(config)
         assert provider._model == "claude-sonnet-4-20250514"
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_custom_model(self, mock_sync, mock_async):
+    def test_custom_model(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test", model="claude-opus-4-20250514")
         provider = AnthropicProvider(config)
         assert provider._model == "claude-opus-4-20250514"
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_is_base_provider(self, mock_sync, mock_async):
+    def test_is_base_provider(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")
         provider = AnthropicProvider(config)
         assert isinstance(provider, BaseLLMProvider)
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_has_create_message(self, mock_sync, mock_async):
+    def test_has_create_message(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")
@@ -62,9 +56,8 @@ class TestAnthropicProvider:
         assert hasattr(provider, "create_message")
         assert callable(provider.create_message)
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_has_create_message_async(self, mock_sync, mock_async):
+    def test_has_create_message_async(self, mock_sync):
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")
@@ -72,9 +65,8 @@ class TestAnthropicProvider:
         assert hasattr(provider, "create_message_async")
         assert callable(provider.create_message_async)
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_create_message_returns_llm_response(self, mock_sync, mock_async):
+    def test_create_message_returns_llm_response(self, mock_sync):
         """Verify create_message correctly maps SDK response to LLMResponse."""
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
 
@@ -102,9 +94,8 @@ class TestAnthropicProvider:
         assert response.usage["output_tokens"] == 5
         assert response.stop_reason == "end_turn"
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_anthropic_auth_error_mapping(self, mock_sync, mock_async):
+    def test_anthropic_auth_error_mapping(self, mock_sync):
         """AuthenticationError from SDK maps to LLMAuthenticationError."""
         from anthropic import AuthenticationError
 
@@ -123,9 +114,8 @@ class TestAnthropicProvider:
         with pytest.raises(LLMAuthenticationError):
             provider.create_message(messages=[LLMMessage(role="user", content="Hello")])
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_anthropic_rate_limit_error_mapping(self, mock_sync, mock_async):
+    def test_anthropic_rate_limit_error_mapping(self, mock_sync):
         """RateLimitError from SDK maps to LLMRateLimitError."""
         from anthropic import RateLimitError
 
@@ -158,9 +148,8 @@ class TestAzureOpenAIProvider:
         with pytest.raises(ValidationError, match="deployment is required"):
             LLMConfig(provider="azure_openai", endpoint="https://test.openai.azure.com")
 
-    @patch("agent_haymaker.llm.providers.azure_openai.AsyncAzureOpenAI")
     @patch("agent_haymaker.llm.providers.azure_openai.AzureOpenAI")
-    def test_init_with_api_key(self, mock_sync, mock_async):
+    def test_init_with_api_key(self, mock_sync):
         from agent_haymaker.llm.providers.azure_openai import AzureOpenAIProvider
 
         config = LLMConfig(
@@ -171,12 +160,10 @@ class TestAzureOpenAIProvider:
         )
         provider = AzureOpenAIProvider(config)
         mock_sync.assert_called_once()
-        mock_async.assert_called_once()
         assert isinstance(provider, BaseLLMProvider)
 
-    @patch("agent_haymaker.llm.providers.azure_openai.AsyncAzureOpenAI")
     @patch("agent_haymaker.llm.providers.azure_openai.AzureOpenAI")
-    def test_has_both_message_methods(self, mock_sync, mock_async):
+    def test_has_both_message_methods(self, mock_sync):
         from agent_haymaker.llm.providers.azure_openai import AzureOpenAIProvider
 
         config = LLMConfig(
@@ -248,9 +235,8 @@ class TestAzureAIFoundryProvider:
 class TestProviderFactory:
     """Tests for the provider factory function."""
 
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    def test_factory_creates_anthropic(self, mock_sync, mock_async):
+    def test_factory_creates_anthropic(self, mock_sync):
         from agent_haymaker.llm.factory import create_llm_client
 
         config = LLMConfig(provider="anthropic", api_key="sk-test")

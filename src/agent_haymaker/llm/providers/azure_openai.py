@@ -5,7 +5,7 @@ Public API (the "studs"):
 """
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-from openai import AsyncAzureOpenAI, AuthenticationError, AzureOpenAI, RateLimitError
+from openai import AuthenticationError, AzureOpenAI, RateLimitError
 
 from agent_haymaker.llm.config import LLMConfig
 from agent_haymaker.llm.exceptions import (
@@ -45,13 +45,6 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
             )
-            self._async_client = AsyncAzureOpenAI(
-                api_key=api_key,
-                api_version=self._api_version,
-                azure_endpoint=self._endpoint,
-                timeout=config.timeout_seconds,
-                max_retries=config.max_retries,
-            )
         else:
             credential = DefaultAzureCredential()
             token_provider = get_bearer_token_provider(
@@ -59,13 +52,6 @@ class AzureOpenAIProvider(BaseLLMProvider):
             )
 
             self._client = AzureOpenAI(
-                azure_ad_token_provider=token_provider,
-                api_version=self._api_version,
-                azure_endpoint=self._endpoint,
-                timeout=config.timeout_seconds,
-                max_retries=config.max_retries,
-            )
-            self._async_client = AsyncAzureOpenAI(
                 azure_ad_token_provider=token_provider,
                 api_version=self._api_version,
                 azure_endpoint=self._endpoint,
@@ -124,42 +110,12 @@ class AzureOpenAIProvider(BaseLLMProvider):
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> LLMResponse:
-        try:
-            formatted_messages = []
-            if system:
-                formatted_messages.append({"role": "system", "content": system})
-            formatted_messages.extend(
-                [{"role": msg.role, "content": msg.content} for msg in messages]
-            )
+        """Create a message asynchronously. Delegates to sync method via thread pool."""
+        import asyncio
 
-            response = await self._async_client.chat.completions.create(
-                model=self._deployment,
-                messages=formatted_messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-
-            if not response.choices:
-                raise LLMProviderError(
-                    "Azure OpenAI returned empty choices (possible content filter)"
-                )
-            choice = response.choices[0]
-            return LLMResponse(
-                content=choice.message.content or "",
-                model=response.model,
-                usage={
-                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
-                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
-                },
-                stop_reason=choice.finish_reason,
-            )
-
-        except AuthenticationError as e:
-            raise LLMAuthenticationError(f"Azure OpenAI authentication failed: {e}") from e
-        except RateLimitError as e:
-            raise LLMRateLimitError(f"Azure OpenAI rate limit exceeded: {e}") from e
-        except Exception as e:
-            raise LLMProviderError(f"Azure OpenAI error: {e}") from e
+        return await asyncio.to_thread(
+            self.create_message, messages, system, max_tokens, temperature
+        )
 
 
 __all__ = ["AzureOpenAIProvider"]

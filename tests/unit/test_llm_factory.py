@@ -35,8 +35,7 @@ class TestCreateLLMClient:
 
     @pytest.mark.skipif(not HAS_ANTHROPIC, reason="anthropic not installed")
     @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
-    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
-    def test_creates_anthropic_provider(self, mock_async, mock_sync):
+    def test_creates_anthropic_provider(self, mock_sync):
         config = LLMConfig(provider="anthropic", api_key="sk-test")
         client = create_llm_client(config)
         from agent_haymaker.llm.providers.anthropic import AnthropicProvider
@@ -45,8 +44,7 @@ class TestCreateLLMClient:
 
     @pytest.mark.skipif(not HAS_OPENAI, reason="openai not installed")
     @patch("agent_haymaker.llm.providers.azure_openai.AzureOpenAI")
-    @patch("agent_haymaker.llm.providers.azure_openai.AsyncAzureOpenAI")
-    def test_creates_azure_openai_provider(self, mock_async, mock_sync):
+    def test_creates_azure_openai_provider(self, mock_sync):
         config = LLMConfig(
             provider="azure_openai",
             endpoint="https://test.openai.azure.com",
