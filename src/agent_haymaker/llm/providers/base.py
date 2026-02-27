@@ -37,7 +37,6 @@ class BaseLLMProvider(ABC):
         """
         ...
 
-    @abstractmethod
     async def create_message_async(
         self,
         messages: list[LLMMessage],
@@ -46,6 +45,9 @@ class BaseLLMProvider(ABC):
         temperature: float = 0.7,
     ) -> LLMResponse:
         """Create a message asynchronously.
+
+        Default delegates to create_message via asyncio.to_thread.
+        Override for native async implementations.
 
         Args:
             messages: List of conversation messages
@@ -56,7 +58,11 @@ class BaseLLMProvider(ABC):
         Returns:
             LLMResponse with generated content
         """
-        ...
+        import asyncio
+
+        return await asyncio.to_thread(
+            self.create_message, messages, system, max_tokens, temperature
+        )
 
 
 __all__ = ["BaseLLMProvider"]
