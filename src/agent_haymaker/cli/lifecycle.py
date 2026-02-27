@@ -8,8 +8,40 @@ import sys
 
 import click
 
-from ..workloads.base import DeploymentNotFoundError
+from ..workloads import DeploymentStatus
+from ..workloads.base import DeploymentNotFoundError, WorkloadBase
+from ..workloads.models import DeploymentState
+from ..workloads.registry import WorkloadRegistry
 from .main import cli, get_registry, run_async
+
+
+def _find_deployment(
+    registry: WorkloadRegistry, deployment_id: str
+) -> tuple[WorkloadBase, DeploymentState]:
+    """Find the workload and state for a deployment ID.
+
+    Searches all registered workloads for the given deployment.
+
+    Args:
+        registry: Workload registry to search
+        deployment_id: Deployment ID to find
+
+    Returns:
+        Tuple of (workload, state)
+
+    Raises:
+        click.ClickException: If deployment not found in any workload
+    """
+    for name in registry.list_workloads():
+        workload = registry.get_workload(name)
+        if workload:
+            try:
+                state = run_async(workload.get_status(deployment_id))
+                return workload, state
+            except DeploymentNotFoundError:
+                continue
+    raise click.ClickException(f"Deployment '{deployment_id}' not found.")
+
 
 # =============================================================================
 # Status Command
@@ -30,30 +62,19 @@ def status(deployment_id: str, output_format: str) -> None:
         haymaker status dep-abc123 --format json
     """
     registry = get_registry()
+    _workload, state = _find_deployment(registry, deployment_id)
 
-    # Try each workload to find the deployment
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = run_async(workload.get_status(deployment_id))
-                if output_format == "json":
-                    click.echo(state.model_dump_json(indent=2))
-                else:
-                    click.echo(f"Deployment: {state.deployment_id}")
-                    click.echo(f"  Workload: {state.workload_name}")
-                    click.echo(f"  Status:   {state.status}")
-                    click.echo(f"  Phase:    {state.phase}")
-                    if state.started_at:
-                        click.echo(f"  Started:  {state.started_at}")
-                    if state.error:
-                        click.echo(f"  Error:    {state.error}")
-                return
-            except DeploymentNotFoundError:
-                continue
-
-    click.echo(f"Error: Deployment '{deployment_id}' not found.")
-    sys.exit(1)
+    if output_format == "json":
+        click.echo(state.model_dump_json(indent=2))
+    else:
+        click.echo(f"Deployment: {state.deployment_id}")
+        click.echo(f"  Workload: {state.workload_name}")
+        click.echo(f"  Status:   {state.status}")
+        click.echo(f"  Phase:    {state.phase}")
+        if state.started_at:
+            click.echo(f"  Started:  {state.started_at}")
+        if state.error:
+            click.echo(f"  Error:    {state.error}")
 
 
 # =============================================================================
@@ -134,30 +155,17 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
         haymaker logs dep-abc123 -n 50
     """
     registry = get_registry()
+    workload, _state = _find_deployment(registry, deployment_id)
 
-    # Find the workload for this deployment
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                # Check if deployment exists
-                run_async(workload.get_status(deployment_id))
+    async def stream_logs() -> None:
+        try:
+            async for line in workload.get_logs(deployment_id, follow=follow, lines=lines):
+                click.echo(line.rstrip())
+        except Exception as e:
+            click.echo(f"Error streaming logs: {e}", err=True)
+            sys.exit(1)
 
-                # Stream logs - capture workload in closure
-                async def stream_logs(wl=workload) -> None:
-                    try:
-                        async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
-                            click.echo(line.rstrip())
-                    except Exception as e:
-                        click.echo(f"Error streaming logs: {e}", err=True)
-
-                run_async(stream_logs())
-                return
-            except DeploymentNotFoundError:
-                continue
-
-    click.echo(f"Error: Deployment '{deployment_id}' not found.")
-    sys.exit(1)
+    run_async(stream_logs())
 
 
 # =============================================================================
@@ -177,33 +185,22 @@ def stop(deployment_id: str, yes: bool) -> None:
         haymaker stop dep-abc123 --yes
     """
     registry = get_registry()
+    workload, state = _find_deployment(registry, deployment_id)
 
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = run_async(workload.get_status(deployment_id))
+    if state.status != DeploymentStatus.RUNNING:
+        click.echo(f"Deployment is not running (status: {state.status})")
+        sys.exit(1)
 
-                if state.status != "running":
-                    click.echo(f"Deployment is not running (status: {state.status})")
-                    sys.exit(1)
+    if not yes and not click.confirm(f"Stop deployment {deployment_id}?"):
+        click.echo("Aborted.")
+        sys.exit(0)
 
-                if not yes and not click.confirm(f"Stop deployment {deployment_id}?"):
-                    click.echo("Aborted.")
-                    sys.exit(0)
-
-                success = run_async(workload.stop(deployment_id))
-                if success:
-                    click.echo(f"Deployment {deployment_id} stopped.")
-                else:
-                    click.echo("Failed to stop deployment.")
-                    sys.exit(1)
-                return
-            except DeploymentNotFoundError:
-                continue
-
-    click.echo(f"Error: Deployment '{deployment_id}' not found.")
-    sys.exit(1)
+    success = run_async(workload.stop(deployment_id))
+    if success:
+        click.echo(f"Deployment {deployment_id} stopped.")
+    else:
+        click.echo("Failed to stop deployment.")
+        sys.exit(1)
 
 
 # =============================================================================
@@ -221,29 +218,18 @@ def start(deployment_id: str) -> None:
         haymaker start dep-abc123
     """
     registry = get_registry()
+    workload, state = _find_deployment(registry, deployment_id)
 
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = run_async(workload.get_status(deployment_id))
+    if state.status == DeploymentStatus.RUNNING:
+        click.echo("Deployment is already running.")
+        return
 
-                if state.status == "running":
-                    click.echo("Deployment is already running.")
-                    return
-
-                success = run_async(workload.start(deployment_id))
-                if success:
-                    click.echo(f"Deployment {deployment_id} started.")
-                else:
-                    click.echo("Failed to start deployment.")
-                    sys.exit(1)
-                return
-            except DeploymentNotFoundError:
-                continue
-
-    click.echo(f"Error: Deployment '{deployment_id}' not found.")
-    sys.exit(1)
+    success = run_async(workload.start(deployment_id))
+    if success:
+        click.echo(f"Deployment {deployment_id} started.")
+    else:
+        click.echo("Failed to start deployment.")
+        sys.exit(1)
 
 
 # =============================================================================
@@ -267,36 +253,25 @@ def cleanup(deployment_id: str, yes: bool, dry_run: bool) -> None:
         haymaker cleanup dep-abc123 --dry-run
     """
     registry = get_registry()
+    workload, state = _find_deployment(registry, deployment_id)
 
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = run_async(workload.get_status(deployment_id))
+    if dry_run:
+        click.echo(f"Would clean up deployment: {deployment_id}")
+        click.echo(f"  Workload: {state.workload_name}")
+        click.echo(f"  Status: {state.status}")
+        click.echo("(Dry run - no changes made)")
+        return
 
-                if dry_run:
-                    click.echo(f"Would clean up deployment: {deployment_id}")
-                    click.echo(f"  Workload: {state.workload_name}")
-                    click.echo(f"  Status: {state.status}")
-                    click.echo("(Dry run - no changes made)")
-                    return
+    if not yes:
+        click.echo(f"This will delete all resources for deployment: {deployment_id}")
+        if not click.confirm("Are you sure?"):
+            click.echo("Aborted.")
+            sys.exit(0)
 
-                if not yes:
-                    click.echo(f"This will delete all resources for deployment: {deployment_id}")
-                    if not click.confirm("Are you sure?"):
-                        click.echo("Aborted.")
-                        sys.exit(0)
-
-                report = run_async(workload.cleanup(deployment_id))
-                click.echo(f"Cleanup complete for {deployment_id}")
-                click.echo(f"  Resources deleted: {report.resources_deleted}")
-                if report.errors:
-                    click.echo("  Errors:")
-                    for err in report.errors:
-                        click.echo(f"    - {err}")
-                return
-            except DeploymentNotFoundError:
-                continue
-
-    click.echo(f"Error: Deployment '{deployment_id}' not found.")
-    sys.exit(1)
+    report = run_async(workload.cleanup(deployment_id))
+    click.echo(f"Cleanup complete for {deployment_id}")
+    click.echo(f"  Resources deleted: {report.resources_deleted}")
+    if report.errors:
+        click.echo("  Errors:")
+        for err in report.errors:
+            click.echo(f"    - {err}")
