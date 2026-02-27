@@ -5,6 +5,7 @@ and implement the abstract methods. The platform provides universal
 CLI commands that work with any workload through this interface.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
@@ -161,26 +162,23 @@ class WorkloadBase(ABC):
     async def start(self, deployment_id: str) -> bool:
         """Resume a stopped deployment.
 
-        Default implementation re-deploys with the same config.
-        Override for custom resume behavior.
+        Workloads must implement meaningful resume logic.
+        The default re-deploy behavior was removed because it silently
+        creates a new deployment under a different ID, orphaning the original.
 
         Args:
             deployment_id: ID of the deployment to resume
 
         Returns:
             True if started successfully, False otherwise
-        """
-        state = await self.get_status(deployment_id)
-        if state.status == "running":
-            return True  # Already running
 
-        # Re-deploy with same config
-        config = DeploymentConfig(
-            workload_name=self.name,
-            workload_config=state.config,
+        Raises:
+            NotImplementedError: Subclasses must implement resume logic
+        """
+        raise NotImplementedError(
+            f"Workload {self.name} does not implement start/resume. "
+            "Override start() to provide resume functionality."
         )
-        await self.deploy(config)
-        return True
 
     async def list_deployments(self) -> list[DeploymentState]:
         """List all deployments for this workload.
@@ -192,6 +190,7 @@ class WorkloadBase(ABC):
             List of deployment states
         """
         if self._platform is None:
+            logging.getLogger(__name__).debug("No platform configured, cannot list deployments")
             return []
 
         return await self._platform.list_deployments(self.name)
@@ -222,23 +221,37 @@ class WorkloadBase(ABC):
         """Persist deployment state via platform storage."""
         if self._platform:
             await self._platform.save_deployment_state(state)
+        else:
+            deployment_id = getattr(state, "deployment_id", None) if state else None
+            logging.getLogger(__name__).debug(
+                "No platform configured, state not persisted for %s",
+                deployment_id,
+            )
 
     async def load_state(self, deployment_id: str) -> DeploymentState | None:
         """Load deployment state from platform storage."""
         if self._platform:
             return await self._platform.load_deployment_state(deployment_id)
+        logging.getLogger(__name__).debug(
+            "No platform configured, cannot load state for %s", deployment_id
+        )
         return None
 
     async def get_credential(self, name: str) -> str | None:
         """Get a credential from platform credential storage (Key Vault)."""
         if self._platform:
             return await self._platform.get_credential(name)
+        logging.getLogger(__name__).debug("No platform configured, credential %s unavailable", name)
         return None
 
     def log(self, message: str, level: str = "INFO") -> None:
-        """Log a message via platform logging."""
+        """Log a message via platform logging, falls back to stdlib logging."""
         if self._platform:
             self._platform.log(message, level=level, workload=self.name)
+        else:
+            logging.getLogger(f"workload.{self.name}").log(
+                getattr(logging, level.upper(), logging.INFO), message
+            )
 
 
 class DeploymentError(Exception):
