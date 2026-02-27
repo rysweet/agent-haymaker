@@ -76,12 +76,11 @@ class TestWorkloadBaseUtilities:
         errors = await workload.validate_config(config)
         assert errors == []
 
-    async def test_validate_config_empty_name(self, workload):
-        """validate_config rejects empty workload_name."""
-        config = DeploymentConfig.model_construct(workload_name="")
+    async def test_validate_config_default_returns_empty(self, workload):
+        """Base validate_config returns no errors (Pydantic handles field validation)."""
+        config = DeploymentConfig(workload_name="test", workload_config={})
         errors = await workload.validate_config(config)
-        assert len(errors) > 0
-        assert "workload_name" in errors[0]
+        assert errors == []
 
     async def test_save_state_with_none_platform(self, workload):
         """save_state should be a no-op with None platform."""

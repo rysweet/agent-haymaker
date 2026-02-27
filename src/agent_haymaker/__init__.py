@@ -28,6 +28,7 @@ Quick start:
 from .workloads import (
     DeploymentConfig,
     DeploymentState,
+    DeploymentStatus,
     WorkloadBase,
     WorkloadManifest,
     WorkloadRegistry,
@@ -42,6 +43,7 @@ __all__ = [
     "WorkloadBase",
     "WorkloadRegistry",
     "DeploymentState",
+    "DeploymentStatus",
     "DeploymentConfig",
     "WorkloadManifest",
     "__version__",

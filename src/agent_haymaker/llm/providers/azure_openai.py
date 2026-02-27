@@ -95,6 +95,10 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 temperature=temperature,
             )
 
+            if not response.choices:
+                raise LLMProviderError(
+                    "Azure OpenAI returned empty choices (possible content filter)"
+                )
             choice = response.choices[0]
             return LLMResponse(
                 content=choice.message.content or "",
@@ -135,6 +139,10 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 temperature=temperature,
             )
 
+            if not response.choices:
+                raise LLMProviderError(
+                    "Azure OpenAI returned empty choices (possible content filter)"
+                )
             choice = response.choices[0]
             return LLMResponse(
                 content=choice.message.content or "",
