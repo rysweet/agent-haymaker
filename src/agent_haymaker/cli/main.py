@@ -13,6 +13,7 @@ Provides universal lifecycle commands that work with any workload:
 """
 
 import asyncio
+from importlib.metadata import version as pkg_version
 from typing import Any
 
 import click
@@ -38,7 +39,7 @@ def run_async(coro: Any) -> Any:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="agent-haymaker")
+@click.version_option(version=pkg_version("agent-haymaker"), prog_name="agent-haymaker")
 def cli() -> None:
     """Agent Haymaker - Universal workload orchestration platform.
 

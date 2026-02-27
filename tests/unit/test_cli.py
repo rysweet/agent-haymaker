@@ -1,25 +1,72 @@
 """Tests for CLI commands using Click's CliRunner."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
 from agent_haymaker.cli.main import cli
+from agent_haymaker.workloads.models import (
+    CleanupReport,
+    DeploymentState,
+    DeploymentStatus,
+)
 from agent_haymaker.workloads.registry import WorkloadRegistry
+
+runner = CliRunner()
+
+
+def _make_mock_workload():
+    """Create a mock workload with realistic return values."""
+    wl = MagicMock()
+    wl.name = "test-workload"
+    wl.validate_config = AsyncMock(return_value=[])
+    wl.deploy = AsyncMock(return_value="dep-test-001")
+    wl.get_status = AsyncMock(
+        return_value=DeploymentState(
+            deployment_id="dep-test-001",
+            workload_name="test-workload",
+            status=DeploymentStatus.RUNNING,
+        )
+    )
+    wl.list_deployments = AsyncMock(
+        return_value=[
+            DeploymentState(
+                deployment_id="dep-test-001",
+                workload_name="test-workload",
+                status=DeploymentStatus.RUNNING,
+            )
+        ]
+    )
+    wl.stop = AsyncMock(return_value=True)
+    wl.cleanup = AsyncMock(return_value=CleanupReport(deployment_id="dep-test-001"))
+
+    async def _mock_get_logs(deployment_id, follow=False, lines=100):
+        yield "log line 1"
+        yield "log line 2"
+
+    wl.get_logs = _mock_get_logs
+    return wl
+
+
+def _make_mock_registry(mock_wl):
+    """Create a mock registry that returns the given workload."""
+    registry = MagicMock()
+    registry.get_workload.return_value = mock_wl
+    registry.list_workloads.return_value = ["test-workload"]
+    return registry
 
 
 class TestCLIBasic:
     """Tests for basic CLI functionality."""
 
     def test_version(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
         assert "agent-haymaker" in result.output
-        assert "0.1.0" in result.output
+        # Version should come from package metadata, not hardcoded
+        assert "0.2.0" in result.output
 
     def test_help(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "deploy" in result.output
@@ -36,16 +83,27 @@ class TestDeployCommand:
     """Tests for the deploy command."""
 
     def test_deploy_nonexistent_workload(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["deploy", "nonexistent"])
         assert result.exit_code != 0
         assert "not found" in result.output
 
     def test_deploy_no_workloads_installed(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["deploy", "missing-workload"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    @patch("agent_haymaker.cli.deploy.get_registry")
+    def test_deploy_success(self, mock_get_registry):
+        """Deploy succeeds with a valid workload and --yes flag."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(
+            cli,
+            ["deploy", "test-workload", "--config", "workers=10", "--yes"],
+        )
+        assert result.exit_code == 0
+        assert "dep-test-001" in result.output
 
 
 class TestWorkloadCommands:
@@ -85,10 +143,20 @@ class TestStatusCommand:
         assert "not found" in result.output
 
     def test_status_help(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["status", "--help"])
         assert result.exit_code == 0
         assert "deployment_id" in result.output.lower() or "DEPLOYMENT_ID" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_status_success(self, mock_get_registry):
+        """Status succeeds when deployment is found."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["status", "dep-test-001"])
+        assert result.exit_code == 0
+        assert "dep-test-001" in result.output
+        assert "test-workload" in result.output
 
 
 class TestListCommand:
@@ -101,11 +169,20 @@ class TestListCommand:
         assert "No deployments" in result.output
 
     def test_list_help(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["list", "--help"])
         assert result.exit_code == 0
         assert "--workload" in result.output
         assert "--status" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_list_success(self, mock_get_registry):
+        """List shows deployments when they exist."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["list"])
+        assert result.exit_code == 0
+        assert "dep-test-001" in result.output
 
 
 class TestLogsCommand:
@@ -122,10 +199,19 @@ class TestStopCommand:
     """Tests for the stop command."""
 
     def test_stop_nonexistent_deployment(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["stop", "nonexistent-id", "--yes"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_stop_success(self, mock_get_registry):
+        """Stop succeeds with --yes flag for a running deployment."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["stop", "dep-test-001", "--yes"])
+        assert result.exit_code == 0
+        assert "stopped" in result.output
 
 
 class TestStartCommand:
@@ -148,8 +234,25 @@ class TestCleanupCommand:
         assert "not found" in result.output
 
     def test_cleanup_help(self):
-        runner = CliRunner()
         result = runner.invoke(cli, ["cleanup", "--help"])
         assert result.exit_code == 0
         assert "--dry-run" in result.output
         assert "--yes" in result.output
+
+    @patch("agent_haymaker.cli.lifecycle.get_registry")
+    def test_cleanup_success(self, mock_get_registry):
+        """Cleanup succeeds with --yes flag."""
+        mock_wl = _make_mock_workload()
+        # Set stopped status so cleanup proceeds normally
+        mock_wl.get_status = AsyncMock(
+            return_value=DeploymentState(
+                deployment_id="dep-test-001",
+                workload_name="test-workload",
+                status=DeploymentStatus.STOPPED,
+            )
+        )
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        result = runner.invoke(cli, ["cleanup", "dep-test-001", "--yes"])
+        assert result.exit_code == 0
+        assert "Cleanup complete" in result.output
