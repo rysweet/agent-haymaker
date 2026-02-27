@@ -1,6 +1,11 @@
 """Tests for WorkloadRegistry."""
 
 from agent_haymaker.workloads.base import WorkloadBase
+from agent_haymaker.workloads.models import (
+    CleanupReport,
+    DeploymentState,
+    DeploymentStatus,
+)
 from agent_haymaker.workloads.registry import WorkloadRegistry
 
 
@@ -10,19 +15,26 @@ class ConcreteWorkload(WorkloadBase):
     name = "test-workload"
 
     async def deploy(self, config):
-        return "dep-1"
+        return "deploy-test-001"
 
     async def get_status(self, deployment_id):
-        pass
+        return DeploymentState(
+            deployment_id=deployment_id,
+            workload_name=self.name,
+            status=DeploymentStatus.PENDING,
+        )
 
     async def stop(self, deployment_id):
         return True
 
     async def cleanup(self, deployment_id):
-        pass
+        return CleanupReport(deployment_id=deployment_id)
 
     async def get_logs(self, deployment_id, follow=False, lines=100):
-        yield "log"
+        yield "test log line"
+
+    async def start(self, deployment_id):
+        return True
 
 
 class TestWorkloadRegistry:
@@ -68,6 +80,13 @@ class TestWorkloadRegistry:
         names = registry.list_workloads()
         assert "wl-a" in names
         assert "wl-b" in names
+
+    def test_register_then_discover_includes_workload(self):
+        """After registering a workload, list_workloads includes it by name."""
+        registry = WorkloadRegistry()
+        registry.register_workload("my-workload", ConcreteWorkload)
+        names = registry.list_workloads()
+        assert "my-workload" in names
 
     def test_init_with_platform(self):
         platform = object()

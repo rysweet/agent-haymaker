@@ -145,8 +145,11 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
 
                 # Stream logs - capture workload in closure
                 async def stream_logs(wl=workload) -> None:
-                    async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
-                        click.echo(line.rstrip())
+                    try:
+                        async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
+                            click.echo(line.rstrip())
+                    except Exception as e:
+                        click.echo(f"Error streaming logs: {e}", err=True)
 
                 run_async(stream_logs())
                 return

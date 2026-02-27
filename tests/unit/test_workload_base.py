@@ -1,5 +1,7 @@
 """Tests for WorkloadBase and workload exceptions."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from agent_haymaker.workloads.base import (
@@ -7,7 +9,40 @@ from agent_haymaker.workloads.base import (
     DeploymentNotFoundError,
     WorkloadBase,
 )
-from agent_haymaker.workloads.models import DeploymentConfig
+from agent_haymaker.workloads.models import (
+    CleanupReport,
+    DeploymentConfig,
+    DeploymentState,
+    DeploymentStatus,
+)
+
+
+class ConcreteWorkload(WorkloadBase):
+    """Concrete workload for testing with correct return types."""
+
+    name = "test-workload"
+
+    async def deploy(self, config):
+        return "deploy-test-001"
+
+    async def get_status(self, deployment_id):
+        return DeploymentState(
+            deployment_id=deployment_id,
+            workload_name=self.name,
+            status=DeploymentStatus.PENDING,
+        )
+
+    async def stop(self, deployment_id):
+        return True
+
+    async def cleanup(self, deployment_id):
+        return CleanupReport(deployment_id=deployment_id)
+
+    async def get_logs(self, deployment_id, follow=False, lines=100):
+        yield "test log line"
+
+    async def start(self, deployment_id):
+        return True
 
 
 class TestWorkloadBase:
@@ -23,27 +58,8 @@ class TestWorkloadBase:
 
     def test_init_with_none_platform(self):
         """Concrete subclass with None platform should work."""
-
-        class ConcreteWorkload(WorkloadBase):
-            name = "concrete"
-
-            async def deploy(self, config):
-                return "dep-1"
-
-            async def get_status(self, deployment_id):
-                pass
-
-            async def stop(self, deployment_id):
-                return True
-
-            async def cleanup(self, deployment_id):
-                pass
-
-            async def get_logs(self, deployment_id, follow=False, lines=100):
-                yield "log line"
-
         wl = ConcreteWorkload(platform=None)
-        assert wl.name == "concrete"
+        assert wl.name == "test-workload"
         assert wl._platform is None
 
 
@@ -52,31 +68,20 @@ class TestWorkloadBaseUtilities:
 
     @pytest.fixture()
     def workload(self):
-        class StubWorkload(WorkloadBase):
-            name = "stub"
-
-            async def deploy(self, config):
-                return "dep-1"
-
-            async def get_status(self, deployment_id):
-                pass
-
-            async def stop(self, deployment_id):
-                return True
-
-            async def cleanup(self, deployment_id):
-                pass
-
-            async def get_logs(self, deployment_id, follow=False, lines=100):
-                yield "log"
-
-        return StubWorkload(platform=None)
+        return ConcreteWorkload(platform=None)
 
     async def test_validate_config_default(self, workload):
         """Default validate_config checks workload_name."""
         config = DeploymentConfig(workload_name="test")
         errors = await workload.validate_config(config)
         assert errors == []
+
+    async def test_validate_config_empty_name(self, workload):
+        """validate_config rejects empty workload_name."""
+        config = DeploymentConfig.model_construct(workload_name="")
+        errors = await workload.validate_config(config)
+        assert len(errors) > 0
+        assert "workload_name" in errors[0]
 
     async def test_save_state_with_none_platform(self, workload):
         """save_state should be a no-op with None platform."""
@@ -100,6 +105,42 @@ class TestWorkloadBaseUtilities:
         """list_deployments returns empty list with no platform."""
         result = await workload.list_deployments()
         assert result == []
+
+    async def test_save_state_with_mock_platform(self):
+        """save_state delegates to platform.save_deployment_state."""
+        mock_platform = MagicMock()
+        mock_platform.save_deployment_state = AsyncMock()
+        workload = ConcreteWorkload(platform=mock_platform)
+        state = DeploymentState(
+            deployment_id="test-123",
+            workload_name="test",
+            status=DeploymentStatus.RUNNING,
+        )
+        await workload.save_state(state)
+        mock_platform.save_deployment_state.assert_called_once_with(state)
+
+    async def test_load_state_with_mock_platform(self):
+        """load_state delegates to platform.load_deployment_state."""
+        expected_state = DeploymentState(
+            deployment_id="test-123",
+            workload_name="test",
+            status=DeploymentStatus.RUNNING,
+        )
+        mock_platform = MagicMock()
+        mock_platform.load_deployment_state = AsyncMock(return_value=expected_state)
+        workload = ConcreteWorkload(platform=mock_platform)
+        result = await workload.load_state("test-123")
+        mock_platform.load_deployment_state.assert_called_once_with("test-123")
+        assert result == expected_state
+
+    async def test_get_credential_with_mock_platform(self):
+        """get_credential delegates to platform.get_credential."""
+        mock_platform = MagicMock()
+        mock_platform.get_credential = AsyncMock(return_value="secret-value")
+        workload = ConcreteWorkload(platform=mock_platform)
+        result = await workload.get_credential("my-secret")
+        mock_platform.get_credential.assert_called_once_with("my-secret")
+        assert result == "secret-value"
 
 
 class TestDeploymentExceptions:

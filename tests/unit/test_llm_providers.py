@@ -1,12 +1,14 @@
 """Tests for LLM provider construction with mocked SDK clients."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 from agent_haymaker.llm.config import LLMConfig
+from agent_haymaker.llm.exceptions import LLMAuthenticationError, LLMRateLimitError
 from agent_haymaker.llm.providers.base import BaseLLMProvider
+from agent_haymaker.llm.types import LLMMessage, LLMResponse
 
 
 class TestAnthropicProvider:
@@ -69,6 +71,78 @@ class TestAnthropicProvider:
         provider = AnthropicProvider(config)
         assert hasattr(provider, "create_message_async")
         assert callable(provider.create_message_async)
+
+    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
+    @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
+    def test_create_message_returns_llm_response(self, mock_sync, mock_async):
+        """Verify create_message correctly maps SDK response to LLMResponse."""
+        from agent_haymaker.llm.providers.anthropic import AnthropicProvider
+
+        # Mock the SDK response
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="Hello back!")]
+        mock_response.model = "claude-sonnet-4-20250514"
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
+        mock_response.stop_reason = "end_turn"
+        mock_sync.return_value.messages.create.return_value = mock_response
+
+        config = LLMConfig(provider="anthropic", api_key="sk-test")
+        provider = AnthropicProvider(config)
+
+        response = provider.create_message(
+            messages=[LLMMessage(role="user", content="Hello")],
+            system="Be helpful",
+        )
+
+        assert isinstance(response, LLMResponse)
+        assert response.content == "Hello back!"
+        assert response.model == "claude-sonnet-4-20250514"
+        assert response.usage["input_tokens"] == 10
+        assert response.usage["output_tokens"] == 5
+        assert response.stop_reason == "end_turn"
+
+    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
+    @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
+    def test_anthropic_auth_error_mapping(self, mock_sync, mock_async):
+        """AuthenticationError from SDK maps to LLMAuthenticationError."""
+        from anthropic import AuthenticationError
+
+        from agent_haymaker.llm.providers.anthropic import AnthropicProvider
+
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 401
+        mock_http_response.headers = {}
+        mock_sync.return_value.messages.create.side_effect = AuthenticationError(
+            "bad key", response=mock_http_response, body=None
+        )
+
+        config = LLMConfig(provider="anthropic", api_key="sk-test")
+        provider = AnthropicProvider(config)
+
+        with pytest.raises(LLMAuthenticationError):
+            provider.create_message(messages=[LLMMessage(role="user", content="Hello")])
+
+    @patch("agent_haymaker.llm.providers.anthropic.AsyncAnthropic")
+    @patch("agent_haymaker.llm.providers.anthropic.Anthropic")
+    def test_anthropic_rate_limit_error_mapping(self, mock_sync, mock_async):
+        """RateLimitError from SDK maps to LLMRateLimitError."""
+        from anthropic import RateLimitError
+
+        from agent_haymaker.llm.providers.anthropic import AnthropicProvider
+
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 429
+        mock_http_response.headers = {}
+        mock_sync.return_value.messages.create.side_effect = RateLimitError(
+            "rate limited", response=mock_http_response, body=None
+        )
+
+        config = LLMConfig(provider="anthropic", api_key="sk-test")
+        provider = AnthropicProvider(config)
+
+        with pytest.raises(LLMRateLimitError):
+            provider.create_message(messages=[LLMMessage(role="user", content="Hello")])
 
 
 class TestAzureOpenAIProvider:
