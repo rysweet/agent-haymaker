@@ -7,17 +7,19 @@ The registry is responsible for:
 4. Providing workload instances to the CLI/API
 """
 
+from __future__ import annotations
+
 import logging
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 from .base import WorkloadBase
 from .models import WorkloadManifest
+from .platform import Platform
 
 _logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class WorkloadRegistry:
     # Entry point group for workload discovery
     ENTRY_POINT_GROUP = "agent_haymaker.workloads"
 
-    def __init__(self, platform: Any = None) -> None:
+    def __init__(self, platform: Platform | None = None) -> None:
         """Initialize the registry.
 
         Args:
