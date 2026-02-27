@@ -5,12 +5,15 @@ and implement the abstract methods. The platform provides universal
 CLI commands that work with any workload through this interface.
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
 from .models import CleanupReport, DeploymentConfig, DeploymentState
+from .platform import Platform
 
 
 class WorkloadBase(ABC):
@@ -45,9 +48,9 @@ class WorkloadBase(ABC):
     name: str = "base"
 
     # Platform services - injected by the platform
-    _platform: Any = None
+    _platform: Platform | None = None
 
-    def __init__(self, platform: Any = None) -> None:
+    def __init__(self, platform: Platform | None = None) -> None:
         """Initialize workload with platform services.
 
         Args:
@@ -55,6 +58,14 @@ class WorkloadBase(ABC):
                      credentials, container orchestration, etc.
         """
         self._platform = platform
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Enforce that concrete subclasses define a unique name."""
+        super().__init_subclass__(**kwargs)
+        # Skip enforcement on abstract intermediary classes
+        if not getattr(cls, "__abstractmethods__", None):
+            if cls.name == "base":
+                raise TypeError(f"{cls.__name__} must define a unique 'name' class attribute")
 
     # =========================================================================
     # REQUIRED: Workloads MUST implement these abstract methods
