@@ -71,7 +71,9 @@ class TestLLMConfig:
         assert config.max_retries == 3
 
     def test_custom_timeout_and_retries(self):
-        config = LLMConfig(provider="anthropic", api_key="sk-test", timeout_seconds=60, max_retries=5)
+        config = LLMConfig(
+            provider="anthropic", api_key="sk-test", timeout_seconds=60, max_retries=5
+        )
         assert config.timeout_seconds == 60
         assert config.max_retries == 5
 
