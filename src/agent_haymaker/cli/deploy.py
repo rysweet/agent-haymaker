@@ -1,16 +1,47 @@
 """Deploy command for Agent Haymaker CLI.
 
 Handles deployment of workloads with configuration parsing and validation.
+Supports both CLI flags and YAML config files, with CLI taking precedence.
 """
 
 import sys
+from pathlib import Path
 from typing import Any
 
 import click
+import yaml
 
 from ..workloads.base import DeploymentError
 from ..workloads.models import DeploymentConfig
 from .main import cli, get_registry, run_async
+
+
+def _load_config_file(config_file: str) -> dict[str, Any]:
+    """Load and validate a YAML config file.
+
+    Args:
+        config_file: Path to the YAML config file
+
+    Returns:
+        Parsed config dictionary
+
+    Raises:
+        click.ClickException: If file not found or invalid YAML
+    """
+    path = Path(config_file)
+    if not path.exists():
+        raise click.ClickException(f"Config file not found: {config_file}")
+
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise click.ClickException(f"Invalid YAML in config file: {e}") from None
+
+    if not isinstance(data, dict):
+        raise click.ClickException("Config file must contain a YAML mapping (dict)")
+
+    return data
 
 
 @cli.command()
@@ -18,12 +49,18 @@ from .main import cli, get_registry, run_async
 @click.option("--duration", "-d", type=int, help="Duration in hours (default: indefinite)")
 @click.option("--tag", "-t", multiple=True, help="Tags in key=value format")
 @click.option("--config", "-c", multiple=True, help="Workload config in key=value format")
+@click.option(
+    "--config-file",
+    type=click.Path(exists=False),
+    help="YAML config file (CLI --config flags take precedence)",
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def deploy(
     workload_name: str,
     duration: int | None,
     tag: tuple[str, ...],
     config: tuple[str, ...],
+    config_file: str | None,
     yes: bool,
 ) -> None:
     """Deploy a workload.
@@ -34,6 +71,8 @@ def deploy(
     Examples:
         haymaker deploy m365-knowledge-worker --config workers=25
         haymaker deploy azure-infrastructure --config scenario=linux-vm
+        haymaker deploy m365-knowledge-worker --config-file deploy.yaml
+        haymaker deploy m365-knowledge-worker --config-file deploy.yaml --config workers=50
     """
     registry = get_registry()
     workload = registry.get_workload(workload_name)
@@ -47,15 +86,28 @@ def deploy(
             click.echo("No workloads installed. Use 'haymaker workload install' first.")
         sys.exit(1)
 
-    # Parse tags
-    tags = {}
-    for t in tag:
-        if "=" in t:
-            k, v = t.split("=", 1)
-            tags[k] = v
+    # Load config file defaults if provided
+    file_config: dict[str, Any] = {}
+    file_duration: int | None = None
+    if config_file:
+        file_config = _load_config_file(config_file)
 
-    # Parse workload config
-    workload_config: dict[str, Any] = {}
+        # Extract top-level fields from file config (remove so they don't leak
+        # into workload_config)
+        file_config.pop("workload_name", None)
+        file_duration_raw = file_config.pop("duration_hours", None)
+        if file_duration_raw is not None:
+            try:
+                file_duration = int(file_duration_raw)
+            except (ValueError, TypeError):
+                raise click.ClickException(
+                    f"Invalid duration_hours in config file: {file_duration_raw!r}"
+                ) from None
+
+    # Start with file config as base workload config
+    workload_config: dict[str, Any] = dict(file_config)
+
+    # Parse CLI workload config (overrides file config)
     for c in config:
         if "=" in c:
             k, v = c.split("=", 1)
@@ -71,10 +123,20 @@ def deploy(
                     else:
                         workload_config[k] = v
 
+    # Parse tags
+    tags = {}
+    for t in tag:
+        if "=" in t:
+            k, v = t.split("=", 1)
+            tags[k] = v
+
+    # CLI duration takes precedence over file duration
+    effective_duration = duration if duration is not None else file_duration
+
     # Build config
     deploy_config = DeploymentConfig(
         workload_name=workload_name,
-        duration_hours=duration,
+        duration_hours=effective_duration,
         tags=tags,
         workload_config=workload_config,
     )

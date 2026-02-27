@@ -18,7 +18,7 @@ from typing import Any
 
 import click
 
-from ..workloads import WorkloadRegistry
+from ..workloads import FilePlatform, WorkloadRegistry
 
 
 def get_registry() -> WorkloadRegistry:
@@ -31,7 +31,8 @@ def get_registry() -> WorkloadRegistry:
     if ctx and ctx.obj and "registry" in ctx.obj:
         return ctx.obj["registry"]
     # Fallback for non-Click contexts
-    registry = WorkloadRegistry()
+    platform = FilePlatform()
+    registry = WorkloadRegistry(platform=platform)
     registry.discover_workloads()
     return registry
 
@@ -65,7 +66,8 @@ def cli(ctx: click.Context) -> None:
         haymaker workload install <git-url>
     """
     ctx.ensure_object(dict)
-    registry = WorkloadRegistry()
+    platform = FilePlatform()
+    registry = WorkloadRegistry(platform=platform)
     registry.discover_workloads()
     ctx.obj["registry"] = registry
 
