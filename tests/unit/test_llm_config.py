@@ -114,9 +114,7 @@ class TestLLMConfig:
 
     def test_from_env_default_provider(self):
         env = {"ANTHROPIC_API_KEY": "sk-default"}
-        with patch.dict(os.environ, env, clear=False):
-            # Remove LLM_PROVIDER if set
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("LLM_PROVIDER", None)
-                config = LLMConfig.from_env()
-                assert config.provider == "anthropic"
+        with patch.dict(os.environ, env, clear=True):
+            # clear=True removes LLM_PROVIDER entirely, avoiding os.environ.pop leak
+            config = LLMConfig.from_env()
+            assert config.provider == "anthropic"

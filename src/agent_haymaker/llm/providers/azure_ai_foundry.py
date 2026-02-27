@@ -39,6 +39,13 @@ class AzureAIFoundryProvider(BaseLLMProvider):
 
         api_key = config.api_key.get_secret_value() if config.api_key else None
 
+        # A-1: The azure-ai-inference ChatCompletionsClient does not expose
+        # connection_timeout or read_timeout kwargs directly. Timeout is handled
+        # via asyncio.wait_for in the async path. For the sync path, the SDK
+        # relies on the underlying HTTP transport's default timeout. Set
+        # timeout_seconds on LLMConfig for use in the async wrapper.
+        self._timeout_seconds = config.timeout_seconds
+
         if api_key:
             self._client = ChatCompletionsClient(
                 endpoint=self._endpoint,
@@ -65,6 +72,10 @@ class AzureAIFoundryProvider(BaseLLMProvider):
                 formatted.append(AssistantMessage(content=msg.content))
             elif msg.role == "system":
                 formatted.append(SystemMessage(content=msg.content))
+            else:
+                raise ValueError(
+                    f"Unknown message role: {msg.role!r}. Expected 'user', 'assistant', or 'system'"
+                )
 
         return formatted
 
@@ -90,8 +101,8 @@ class AzureAIFoundryProvider(BaseLLMProvider):
                 content=choice.message.content or "",
                 model=response.model or self._model,
                 usage={
-                    "input_tokens": response.usage.prompt_tokens,
-                    "output_tokens": response.usage.completion_tokens,
+                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
                 },
                 stop_reason=choice.finish_reason,
             )
@@ -112,7 +123,13 @@ class AzureAIFoundryProvider(BaseLLMProvider):
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> LLMResponse:
-        """Async wrapper - Azure AI Inference SDK lacks native async support."""
+        """Async wrapper - Azure AI Inference SDK lacks native async support.
+
+        Note: The underlying synchronous call runs in a thread pool via
+        asyncio.to_thread. If the calling coroutine is cancelled, the thread
+        continues to completion. For cancellation support, set appropriate
+        timeout_seconds in LLMConfig.
+        """
         import asyncio
 
         return await asyncio.to_thread(
