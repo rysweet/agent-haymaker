@@ -39,13 +39,6 @@ class AzureAIFoundryProvider(BaseLLMProvider):
 
         api_key = config.api_key.get_secret_value() if config.api_key else None
 
-        # A-1: The azure-ai-inference ChatCompletionsClient does not expose
-        # connection_timeout or read_timeout kwargs directly. Timeout is handled
-        # via asyncio.wait_for in the async path. For the sync path, the SDK
-        # relies on the underlying HTTP transport's default timeout. Set
-        # timeout_seconds on LLMConfig for use in the async wrapper.
-        self._timeout_seconds = config.timeout_seconds
-
         if api_key:
             self._client = ChatCompletionsClient(
                 endpoint=self._endpoint,

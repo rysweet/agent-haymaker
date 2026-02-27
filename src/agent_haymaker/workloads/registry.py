@@ -154,7 +154,8 @@ class WorkloadRegistry:
             except subprocess.TimeoutExpired:
                 raise ValueError("Git clone timed out after 120 seconds") from None
             if result.returncode != 0:
-                raise ValueError(f"Failed to clone {repo_url}: {result.stderr}")
+                _logger.debug("git clone stderr: %s", result.stderr)
+                raise ValueError("Failed to clone repository: git returned non-zero exit code")
 
             # Load manifest
             manifest = self.load_manifest(tmpdir)
@@ -167,7 +168,7 @@ class WorkloadRegistry:
 
                 # Reject any source that escapes the clone directory
                 tmpdir_resolved = Path(tmpdir).resolve()
-                if not str(source_path).startswith(str(tmpdir_resolved)):
+                if not source_path.is_relative_to(tmpdir_resolved):
                     raise ValueError(
                         f"Manifest 'source' path escapes the clone directory: {source_raw!r}"
                     )
@@ -188,7 +189,8 @@ class WorkloadRegistry:
                 except subprocess.TimeoutExpired:
                     raise ValueError("pip install timed out after 300 seconds") from None
                 if result.returncode != 0:
-                    raise ValueError(f"Failed to install package: {result.stderr}")
+                    _logger.debug("pip install stderr: %s", result.stderr)
+                    raise ValueError("Failed to install package: pip returned non-zero exit code")
             else:
                 _logger.warning(
                     "Workload %s has no package config, skipping pip install",
@@ -210,8 +212,13 @@ class WorkloadRegistry:
 
         Returns:
             Name of the installed workload
+
+        Raises:
+            ValueError: If path is not a directory
         """
-        path = Path(path)
+        path = Path(path).resolve()
+        if not path.is_dir():
+            raise ValueError(f"Path is not a directory: {path}")
         manifest = self.load_manifest(path)
 
         # Install as editable package
@@ -225,7 +232,8 @@ class WorkloadRegistry:
         except subprocess.TimeoutExpired:
             raise ValueError("pip install timed out after 300 seconds") from None
         if result.returncode != 0:
-            raise ValueError(f"Failed to install package: {result.stderr}")
+            _logger.debug("pip install stderr: %s", result.stderr)
+            raise ValueError("Failed to install package: pip returned non-zero exit code")
 
         # Re-discover
         self.discover_workloads()

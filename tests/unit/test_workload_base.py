@@ -84,7 +84,12 @@ class TestWorkloadBaseUtilities:
 
     async def test_save_state_with_none_platform(self, workload):
         """save_state should be a no-op with None platform."""
-        await workload.save_state(None)  # Should not raise
+        state = DeploymentState(
+            deployment_id="dep-no-platform",
+            workload_name="test-workload",
+            status=DeploymentStatus.PENDING,
+        )
+        await workload.save_state(state)  # Should not raise
 
     async def test_load_state_with_none_platform(self, workload):
         """load_state returns None with no platform."""
