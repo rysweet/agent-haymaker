@@ -47,6 +47,13 @@ class WorkloadBase(ABC):
     # Platform services - injected by the platform
     _platform: Any = None
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        # Skip enforcement on abstract intermediary classes
+        if not getattr(cls, "__abstractmethods__", None):
+            if cls.name == "base":
+                raise TypeError(f"{cls.__name__} must define a unique 'name' class attribute")
+
     def __init__(self, platform: Any = None) -> None:
         """Initialize workload with platform services.
 
