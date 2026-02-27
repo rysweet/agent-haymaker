@@ -25,9 +25,14 @@ class AzureOpenAIProvider(BaseLLMProvider):
     """
 
     def __init__(self, config: LLMConfig) -> None:
+        if not config.endpoint:
+            raise ValueError("endpoint is required for Azure OpenAI provider")
+        if not config.deployment:
+            raise ValueError("deployment is required for Azure OpenAI provider")
+
         self._config = config
-        self._deployment = config.deployment
-        self._endpoint = config.endpoint
+        self._deployment: str = config.deployment
+        self._endpoint: str = config.endpoint
         self._api_version = config.api_version
 
         api_key = config.api_key.get_secret_value() if config.api_key else None
@@ -95,8 +100,8 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 content=choice.message.content or "",
                 model=response.model,
                 usage={
-                    "input_tokens": response.usage.prompt_tokens,
-                    "output_tokens": response.usage.completion_tokens,
+                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
                 },
                 stop_reason=choice.finish_reason,
             )
@@ -135,8 +140,8 @@ class AzureOpenAIProvider(BaseLLMProvider):
                 content=choice.message.content or "",
                 model=response.model,
                 usage={
-                    "input_tokens": response.usage.prompt_tokens,
-                    "output_tokens": response.usage.completion_tokens,
+                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
                 },
                 stop_reason=choice.finish_reason,
             )

@@ -28,9 +28,14 @@ class AzureAIFoundryProvider(BaseLLMProvider):
     """
 
     def __init__(self, config: LLMConfig) -> None:
+        if not config.endpoint:
+            raise ValueError("endpoint is required for Azure AI Foundry provider")
+        if not config.model:
+            raise ValueError("model is required for Azure AI Foundry provider")
+
         self._config = config
-        self._model = config.model
-        self._endpoint = config.endpoint
+        self._model: str = config.model
+        self._endpoint: str = config.endpoint
 
         api_key = config.api_key.get_secret_value() if config.api_key else None
 

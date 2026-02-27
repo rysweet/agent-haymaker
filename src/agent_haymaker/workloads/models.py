@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DeploymentStatus(StrEnum):
@@ -40,8 +40,7 @@ class DeploymentState(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     error: str | None = Field(default=None, description="Error message if failed")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class DeploymentConfig(BaseModel):
@@ -86,8 +85,7 @@ class WorkloadManifest(BaseModel):
         default_factory=list, description="Target tenant requirements"
     )
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CleanupReport(BaseModel):
