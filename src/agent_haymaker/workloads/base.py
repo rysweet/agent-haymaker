@@ -206,12 +206,7 @@ class WorkloadBase(ABC):
         Returns:
             List of validation error messages (empty if valid)
         """
-        errors: list[str] = []
-
-        if not config.workload_name:
-            errors.append("workload_name is required")
-
-        return errors
+        return []
 
     # =========================================================================
     # Utility methods available to all workloads

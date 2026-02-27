@@ -96,6 +96,8 @@ class AzureAIFoundryProvider(BaseLLMProvider):
                 model=self._model,
             )
 
+            if not response.choices:
+                raise LLMProviderError("Azure AI Foundry returned empty choices")
             choice = response.choices[0]
             return LLMResponse(
                 content=choice.message.content or "",

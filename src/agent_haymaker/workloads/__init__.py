@@ -5,12 +5,13 @@ workload implementations must inherit from.
 """
 
 from .base import WorkloadBase
-from .models import DeploymentConfig, DeploymentState, WorkloadManifest
+from .models import DeploymentConfig, DeploymentState, DeploymentStatus, WorkloadManifest
 from .registry import WorkloadRegistry
 
 __all__ = [
     "WorkloadBase",
     "DeploymentState",
+    "DeploymentStatus",
     "DeploymentConfig",
     "WorkloadManifest",
     "WorkloadRegistry",

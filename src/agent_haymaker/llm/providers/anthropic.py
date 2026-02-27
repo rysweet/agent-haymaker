@@ -59,8 +59,16 @@ class AnthropicProvider(BaseLLMProvider):
 
             response = self._client.messages.create(**kwargs)
 
+            if not response.content:
+                raise LLMProviderError("Anthropic returned empty content list")
+            first_block = response.content[0]
+            if not hasattr(first_block, "text"):
+                raise LLMProviderError(
+                    f"Anthropic returned non-text content: {type(first_block).__name__}"
+                )
+
             return LLMResponse(
-                content=response.content[0].text,
+                content=first_block.text,
                 model=response.model,
                 usage={
                     "input_tokens": response.usage.input_tokens,

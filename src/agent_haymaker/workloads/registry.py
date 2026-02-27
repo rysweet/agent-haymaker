@@ -7,11 +7,10 @@ The registry is responsible for:
 4. Providing workload instances to the CLI/API
 """
 
-import importlib
 import logging
 import subprocess
+import sys
 import tempfile
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,8 @@ import yaml
 
 from .base import WorkloadBase
 from .models import WorkloadManifest
+
+_logger = logging.getLogger(__name__)
 
 
 class WorkloadRegistry:
@@ -41,7 +42,6 @@ class WorkloadRegistry:
         """
         self._platform = platform
         self._workloads: dict[str, type[WorkloadBase]] = {}
-        self._manifests: dict[str, WorkloadManifest] = {}
 
     def discover_workloads(self) -> dict[str, type[WorkloadBase]]:
         """Discover all installed workloads via entry points.
@@ -66,17 +66,10 @@ class WorkloadRegistry:
                     ):
                         self._workloads[ep.name] = workload_class
                 except Exception as e:
-                    logging.getLogger(__name__).warning(
-                        "Failed to load workload %s: %s\n%s",
-                        ep.name,
-                        e,
-                        traceback.format_exc(),
-                    )
+                    _logger.warning("Failed to load workload %s: %s", ep.name, e, exc_info=True)
 
         except Exception as e:
-            logging.getLogger(__name__).warning(
-                "Failed to discover workloads: %s\n%s", e, traceback.format_exc()
-            )
+            _logger.warning("Failed to discover workloads: %s", e, exc_info=True)
 
         return self._workloads
 
@@ -169,7 +162,7 @@ class WorkloadRegistry:
                 source = manifest.package.get("source", tmpdir)
                 try:
                     result = subprocess.run(
-                        ["pip", "install", source],
+                        [sys.executable, "-m", "pip", "install", source],
                         capture_output=True,
                         text=True,
                         timeout=300,
@@ -179,7 +172,7 @@ class WorkloadRegistry:
                 if result.returncode != 0:
                     raise ValueError(f"Failed to install package: {result.stderr}")
             else:
-                logging.getLogger(__name__).warning(
+                _logger.warning(
                     "Workload %s has no package config, skipping pip install",
                     manifest.name,
                 )
@@ -204,7 +197,7 @@ class WorkloadRegistry:
         # Install as editable package
         try:
             result = subprocess.run(
-                ["pip", "install", "-e", str(path)],
+                [sys.executable, "-m", "pip", "install", "-e", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -218,23 +211,6 @@ class WorkloadRegistry:
         self.discover_workloads()
 
         return manifest.name
-
-    def load_workload_class(self, entrypoint: str) -> type[WorkloadBase]:
-        """Load a workload class from an entrypoint string.
-
-        Args:
-            entrypoint: "module.path:ClassName" format
-
-        Returns:
-            Workload class
-
-        Raises:
-            ImportError: If module can't be loaded
-            AttributeError: If class doesn't exist
-        """
-        module_path, class_name = entrypoint.rsplit(":", 1)
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
 
     def register_workload(self, name: str, workload_class: type[WorkloadBase]) -> None:
         """Manually register a workload class.
