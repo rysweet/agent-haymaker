@@ -8,8 +8,10 @@ The registry is responsible for:
 """
 
 import importlib
+import logging
 import subprocess
 import tempfile
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -64,10 +66,17 @@ class WorkloadRegistry:
                     ):
                         self._workloads[ep.name] = workload_class
                 except Exception as e:
-                    print(f"Warning: Failed to load workload {ep.name}: {e}")
+                    logging.getLogger(__name__).warning(
+                        "Failed to load workload %s: %s\n%s",
+                        ep.name,
+                        e,
+                        traceback.format_exc(),
+                    )
 
         except Exception as e:
-            print(f"Warning: Failed to discover workloads: {e}")
+            logging.getLogger(__name__).warning(
+                "Failed to discover workloads: %s\n%s", e, traceback.format_exc()
+            )
 
         return self._workloads
 
@@ -140,11 +149,15 @@ class WorkloadRegistry:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Clone the repo
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", repo_url, tmpdir],
-                capture_output=True,
-                text=True,
-            )
+            try:
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", repo_url, tmpdir],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                raise ValueError("Git clone timed out after 120 seconds") from None
             if result.returncode != 0:
                 raise ValueError(f"Failed to clone {repo_url}: {result.stderr}")
 
@@ -154,13 +167,22 @@ class WorkloadRegistry:
             # Install the package
             if manifest.package:
                 source = manifest.package.get("source", tmpdir)
-                result = subprocess.run(
-                    ["pip", "install", "-e", source],
-                    capture_output=True,
-                    text=True,
-                )
+                try:
+                    result = subprocess.run(
+                        ["pip", "install", source],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                except subprocess.TimeoutExpired:
+                    raise ValueError("pip install timed out after 300 seconds") from None
                 if result.returncode != 0:
                     raise ValueError(f"Failed to install package: {result.stderr}")
+            else:
+                logging.getLogger(__name__).warning(
+                    "Workload %s has no package config, skipping pip install",
+                    manifest.name,
+                )
 
             # Re-discover workloads to pick up new one
             self.discover_workloads()
@@ -180,11 +202,15 @@ class WorkloadRegistry:
         manifest = self.load_manifest(path)
 
         # Install as editable package
-        result = subprocess.run(
-            ["pip", "install", "-e", str(path)],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["pip", "install", "-e", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise ValueError("pip install timed out after 300 seconds") from None
         if result.returncode != 0:
             raise ValueError(f"Failed to install package: {result.stderr}")
 
