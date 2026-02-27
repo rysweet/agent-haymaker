@@ -6,9 +6,35 @@ Public API (the "studs"):
 
 import os
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+
+# Data-driven mapping: provider -> {config_field: env_var}
+# Fields mapped to None are optional; required fields raise ValueError if missing.
+_PROVIDER_ENV_MAP: dict[str, dict[str, str]] = {
+    "anthropic": {
+        "api_key": "ANTHROPIC_API_KEY",
+    },
+    "azure_openai": {
+        "endpoint": "AZURE_OPENAI_ENDPOINT",
+        "deployment": "AZURE_OPENAI_DEPLOYMENT",
+        "api_version": "AZURE_OPENAI_API_VERSION",
+        "api_key": "AZURE_OPENAI_API_KEY",
+    },
+    "azure_ai_foundry": {
+        "endpoint": "AZURE_AI_FOUNDRY_ENDPOINT",
+        "model": "AZURE_AI_FOUNDRY_MODEL",
+        "api_key": "AZURE_AI_FOUNDRY_API_KEY",
+    },
+}
+
+# Fields that are required per provider (must be set in env)
+_PROVIDER_REQUIRED_FIELDS: dict[str, set[str]] = {
+    "anthropic": {"api_key"},
+    "azure_openai": {"endpoint", "deployment"},
+    "azure_ai_foundry": {"endpoint", "model"},
+}
 
 
 class LLMConfig(BaseModel):
@@ -83,6 +109,10 @@ class LLMConfig(BaseModel):
     def from_env(cls) -> "LLMConfig":
         """Create LLMConfig from environment variables.
 
+        Uses _PROVIDER_ENV_MAP for data-driven construction instead of
+        branchy if/elif logic. The map defines which env vars correspond
+        to which config fields for each provider.
+
         Environment variables:
             LLM_PROVIDER: Provider name (default: anthropic)
             ANTHROPIC_API_KEY: Anthropic API key
@@ -95,65 +125,29 @@ class LLMConfig(BaseModel):
 
         Returns:
             LLMConfig instance
+
+        Raises:
+            ValueError: If provider is unknown or required env vars are missing
         """
         provider = os.environ.get("LLM_PROVIDER", "anthropic")
 
-        if provider == "anthropic":
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if not api_key:
-                raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable is required when LLM_PROVIDER=anthropic"
-                )
-            return cls(
-                provider="anthropic",
-                api_key=api_key,
-            )
-
-        elif provider == "azure_openai":
-            endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-            deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
-            if not endpoint:
-                raise ValueError(
-                    "AZURE_OPENAI_ENDPOINT environment variable is required "
-                    "when LLM_PROVIDER=azure_openai"
-                )
-            if not deployment:
-                raise ValueError(
-                    "AZURE_OPENAI_DEPLOYMENT environment variable is required "
-                    "when LLM_PROVIDER=azure_openai"
-                )
-            api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-            return cls(
-                provider="azure_openai",
-                endpoint=endpoint,
-                deployment=deployment,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-                api_key=api_key if api_key else None,
-            )
-
-        elif provider == "azure_ai_foundry":
-            endpoint = os.environ.get("AZURE_AI_FOUNDRY_ENDPOINT")
-            model = os.environ.get("AZURE_AI_FOUNDRY_MODEL")
-            if not endpoint:
-                raise ValueError(
-                    "AZURE_AI_FOUNDRY_ENDPOINT environment variable is required "
-                    "when LLM_PROVIDER=azure_ai_foundry"
-                )
-            if not model:
-                raise ValueError(
-                    "AZURE_AI_FOUNDRY_MODEL environment variable is required "
-                    "when LLM_PROVIDER=azure_ai_foundry"
-                )
-            api_key = os.environ.get("AZURE_AI_FOUNDRY_API_KEY")
-            return cls(
-                provider="azure_ai_foundry",
-                endpoint=endpoint,
-                model=model,
-                api_key=api_key if api_key else None,
-            )
-
-        else:
+        if provider not in _PROVIDER_ENV_MAP:
             raise ValueError(f"Unknown provider: {provider}")
+
+        env_map = _PROVIDER_ENV_MAP[provider]
+        required = _PROVIDER_REQUIRED_FIELDS.get(provider, set())
+
+        kwargs: dict[str, Any] = {"provider": provider}
+        for field, env_var in env_map.items():
+            value = os.environ.get(env_var)
+            if value is None and field in required:
+                raise ValueError(
+                    f"{env_var} environment variable is required when LLM_PROVIDER={provider}"
+                )
+            if value is not None:
+                kwargs[field] = value
+
+        return cls(**kwargs)
 
 
 __all__ = ["LLMConfig"]

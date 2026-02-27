@@ -1,7 +1,10 @@
 """Tests for CLI commands using Click's CliRunner."""
 
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import yaml
 from click.testing import CliRunner
 
 from agent_haymaker.cli.main import cli
@@ -104,6 +107,107 @@ class TestDeployCommand:
         )
         assert result.exit_code == 0
         assert "dep-test-001" in result.output
+
+    @patch("agent_haymaker.cli.deploy.get_registry")
+    def test_deploy_with_config_file(self, mock_get_registry):
+        """Deploy reads config from YAML file."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        config_data = {
+            "workers": 25,
+            "scenario": "email-flood",
+            "duration_hours": 8,
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            result = runner.invoke(
+                cli,
+                ["deploy", "test-workload", "--config-file", config_path, "--yes"],
+            )
+            assert result.exit_code == 0
+            assert "dep-test-001" in result.output
+            # Verify the deploy was called with config from file
+            call_args = mock_wl.deploy.call_args[0][0]
+            assert call_args.workload_config["workers"] == 25
+            assert call_args.workload_config["scenario"] == "email-flood"
+            assert call_args.duration_hours == 8
+        finally:
+            Path(config_path).unlink(missing_ok=True)
+
+    @patch("agent_haymaker.cli.deploy.get_registry")
+    def test_deploy_config_file_cli_precedence(self, mock_get_registry):
+        """CLI --config flags take precedence over config file values."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        config_data = {
+            "workers": 25,
+            "scenario": "email-flood",
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            result = runner.invoke(
+                cli,
+                [
+                    "deploy",
+                    "test-workload",
+                    "--config-file",
+                    config_path,
+                    "--config",
+                    "workers=50",
+                    "--yes",
+                ],
+            )
+            assert result.exit_code == 0
+            call_args = mock_wl.deploy.call_args[0][0]
+            # CLI overrides file
+            assert call_args.workload_config["workers"] == 50
+            # File value preserved where no CLI override
+            assert call_args.workload_config["scenario"] == "email-flood"
+        finally:
+            Path(config_path).unlink(missing_ok=True)
+
+    def test_deploy_config_file_not_found(self):
+        """Deploy fails gracefully when config file doesn't exist."""
+        result = runner.invoke(
+            cli,
+            ["deploy", "test-workload", "--config-file", "/nonexistent/path.yaml", "--yes"],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "Config file not found" in result.output
+
+    @patch("agent_haymaker.cli.deploy.get_registry")
+    def test_deploy_config_file_workload_name_field(self, mock_get_registry):
+        """Config file workload_name field is extracted but CLI arg is used."""
+        mock_wl = _make_mock_workload()
+        mock_get_registry.return_value = _make_mock_registry(mock_wl)
+
+        config_data = {
+            "workload_name": "ignored-workload",
+            "workers": 10,
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            result = runner.invoke(
+                cli,
+                ["deploy", "test-workload", "--config-file", config_path, "--yes"],
+            )
+            assert result.exit_code == 0
+            call_args = mock_wl.deploy.call_args[0][0]
+            # workload_name should not leak into workload_config
+            assert "workload_name" not in call_args.workload_config
+        finally:
+            Path(config_path).unlink(missing_ok=True)
 
 
 class TestWorkloadCommands:
