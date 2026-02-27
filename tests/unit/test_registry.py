@@ -1,5 +1,12 @@
 """Tests for WorkloadRegistry."""
 
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+import yaml
+
 from agent_haymaker.workloads.base import WorkloadBase
 from agent_haymaker.workloads.models import (
     CleanupReport,
@@ -99,3 +106,155 @@ class TestWorkloadRegistry:
         registry.register_workload("test", ConcreteWorkload)
         instance = registry.get_workload("test")
         assert instance._platform is platform
+
+
+def _write_manifest(directory: str, source: str | None = None) -> None:
+    """Write a minimal workload.yaml into directory."""
+    manifest = {
+        "name": "test-workload",
+        "version": "0.1.0",
+        "type": "runtime",
+        "description": "Test workload",
+    }
+    if source is not None:
+        manifest["package"] = {"source": source}
+    else:
+        manifest["package"] = {"source": "."}
+    path = Path(directory) / "workload.yaml"
+    path.write_text(yaml.dump(manifest))
+
+
+class TestInstallFromGitSourceValidation:
+    """Tests that install_from_git validates the manifest source field."""
+
+    def test_rejects_path_traversal_with_dot_dot(self):
+        """Source '../../etc/passwd' escapes the clone directory."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            _write_manifest(fake_clone, source="../../etc/passwd")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                with pytest.raises(ValueError, match="escapes the clone directory"):
+                    registry.install_from_git("https://example.com/repo.git")
+
+    def test_rejects_absolute_path_outside_clone(self):
+        """Source '/tmp/evil' escapes the clone directory."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            _write_manifest(fake_clone, source="/tmp/evil")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                with pytest.raises(ValueError, match="escapes the clone directory"):
+                    registry.install_from_git("https://example.com/repo.git")
+
+    def test_rejects_url_in_source(self):
+        """Source containing a URL should be rejected."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            _write_manifest(fake_clone, source="https://evil.com/package.tar.gz")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                with pytest.raises(ValueError, match="must be a local path, not a URL"):
+                    registry.install_from_git("https://example.com/repo.git")
+
+    def test_rejects_ftp_url_in_source(self):
+        """Source containing an ftp:// URL should be rejected."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            _write_manifest(fake_clone, source="ftp://evil.com/package.tar.gz")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                with pytest.raises(ValueError, match="must be a local path, not a URL"):
+                    registry.install_from_git("https://example.com/repo.git")
+
+    def test_accepts_dot_source(self):
+        """Source '.' (current dir) is valid and should not raise."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            _write_manifest(fake_clone, source=".")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+                patch.object(registry, "discover_workloads"),
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                name = registry.install_from_git("https://example.com/repo.git")
+                assert name == "test-workload"
+
+    def test_accepts_subdirectory_source(self):
+        """Source 'subdir' within the clone is valid."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            subdir = Path(fake_clone) / "subdir"
+            subdir.mkdir()
+            _write_manifest(fake_clone, source="subdir")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+                patch.object(registry, "discover_workloads"),
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                name = registry.install_from_git("https://example.com/repo.git")
+                assert name == "test-workload"
+
+    def test_rejects_symlink_escape(self):
+        """A symlink pointing outside the clone dir should be caught."""
+        registry = WorkloadRegistry()
+
+        with tempfile.TemporaryDirectory() as fake_clone:
+            link_path = Path(fake_clone) / "escape_link"
+            link_path.symlink_to("/tmp")
+            _write_manifest(fake_clone, source="escape_link")
+
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("tempfile.TemporaryDirectory") as mock_td,
+            ):
+                mock_td.return_value.__enter__ = MagicMock(return_value=fake_clone)
+                mock_td.return_value.__exit__ = MagicMock(return_value=False)
+                mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+                with pytest.raises(ValueError, match="escapes the clone directory"):
+                    registry.install_from_git("https://example.com/repo.git")

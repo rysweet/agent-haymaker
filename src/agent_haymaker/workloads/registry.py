@@ -138,7 +138,7 @@ class WorkloadRegistry:
             Name of the installed workload
 
         Raises:
-            ValueError: If installation fails
+            ValueError: If installation fails or manifest source is invalid
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Clone the repo
@@ -159,10 +159,26 @@ class WorkloadRegistry:
 
             # Install the package
             if manifest.package:
-                source = manifest.package.get("source", tmpdir)
+                source_raw = manifest.package.get("source", ".")
+                # Resolve relative paths against the clone directory
+                source_path = (Path(tmpdir) / source_raw).resolve()
+
+                # Reject any source that escapes the clone directory
+                tmpdir_resolved = Path(tmpdir).resolve()
+                if not str(source_path).startswith(str(tmpdir_resolved)):
+                    raise ValueError(
+                        f"Manifest 'source' path escapes the clone directory: {source_raw!r}"
+                    )
+
+                # Reject URLs or non-local-path values (prevent URL injection)
+                if "://" in source_raw or source_raw.startswith(("http:", "https:", "ftp:")):
+                    raise ValueError(
+                        f"Manifest 'source' must be a local path, not a URL: {source_raw!r}"
+                    )
+
                 try:
                     result = subprocess.run(
-                        [sys.executable, "-m", "pip", "install", source],
+                        [sys.executable, "-m", "pip", "install", str(source_path)],
                         capture_output=True,
                         text=True,
                         timeout=300,
@@ -177,10 +193,12 @@ class WorkloadRegistry:
                     manifest.name,
                 )
 
-            # Re-discover workloads to pick up new one
-            self.discover_workloads()
+            manifest_name = manifest.name
 
-            return manifest.name
+        # Discover after temp dir cleanup (safe for imports)
+        self.discover_workloads()
+
+        return manifest_name
 
     def install_from_path(self, path: Path | str) -> str:
         """Install a workload from a local directory.
