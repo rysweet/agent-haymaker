@@ -13,6 +13,7 @@ from ..events import (
     DEPLOYMENT_LOG,
     DEPLOYMENT_PHASE_CHANGED,
     DEPLOYMENT_STARTED,
+    DEPLOYMENT_STOPPED,
     WORKLOAD_PROGRESS,
 )
 from .main import cli, get_registry, run_async
@@ -104,9 +105,12 @@ def watch(deployment_id: str, wait_for: str | None, timeout: int) -> None:
             # Check if we should stop watching
             if target_state:
                 topic = event.get("topic", "")
-                if target_state == "completed" and topic == DEPLOYMENT_COMPLETED:
-                    done_event.set()
-                elif target_state == "failed" and topic == DEPLOYMENT_FAILED:
+                state_to_topic = {
+                    "completed": DEPLOYMENT_COMPLETED,
+                    "failed": DEPLOYMENT_FAILED,
+                    "stopped": DEPLOYMENT_STOPPED,
+                }
+                if topic == state_to_topic.get(target_state):
                     done_event.set()
 
         # Subscribe to all deployment-related topics
@@ -114,6 +118,7 @@ def watch(deployment_id: str, wait_for: str | None, timeout: int) -> None:
             DEPLOYMENT_STARTED,
             DEPLOYMENT_COMPLETED,
             DEPLOYMENT_FAILED,
+            DEPLOYMENT_STOPPED,
             DEPLOYMENT_PHASE_CHANGED,
             DEPLOYMENT_LOG,
             WORKLOAD_PROGRESS,

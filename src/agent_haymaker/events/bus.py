@@ -110,7 +110,7 @@ class LocalEventBus:
 
     async def unsubscribe(self, subscription_id: str) -> None:
         """Cancel the subscriber task and remove it from the registry."""
-        for topic, subs in self._subscribers.items():
+        for topic, subs in list(self._subscribers.items()):
             if subscription_id in subs:
                 sub = subs.pop(subscription_id)
                 if sub.task is not None:

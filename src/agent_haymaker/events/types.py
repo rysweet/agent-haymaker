@@ -26,19 +26,21 @@ DEPLOYMENT_FAILED = "deployment.failed"
 DEPLOYMENT_PHASE_CHANGED = "deployment.phase_changed"
 DEPLOYMENT_LOG = "deployment.log"
 WORKLOAD_PROGRESS = "workload.progress"
+DEPLOYMENT_STOPPED = "deployment.stopped"
 RESOURCE_CREATED = "resource.created"
 RESOURCE_DELETED = "resource.deleted"
 
-ALL_TOPICS: list[str] = [
+ALL_TOPICS: tuple[str, ...] = (
     DEPLOYMENT_STARTED,
     DEPLOYMENT_COMPLETED,
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PHASE_CHANGED,
     DEPLOYMENT_LOG,
+    DEPLOYMENT_STOPPED,
     WORKLOAD_PROGRESS,
     RESOURCE_CREATED,
     RESOURCE_DELETED,
-]
+)
 
 # ---------------------------------------------------------------------------
 # Event data model

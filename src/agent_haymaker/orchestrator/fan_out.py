@@ -113,9 +113,19 @@ class FanOutController:
             for item in items
         ]
 
-        statuses = await asyncio.gather(*tasks)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for status in statuses:
+        for i, entry in enumerate(raw_results):
+            if isinstance(entry, BaseException):
+                # Task raised an unhandled exception (e.g. CancelledError)
+                status = ExecutionStatus(
+                    deployment_id=items[i]["deployment_id"],
+                    workload_name=items[i]["workload_name"],
+                    state=ExecutionState.FAILED,
+                    error_message=f"{type(entry).__name__}: {entry}",
+                )
+            else:
+                status = entry
             result.statuses.append(status)
             if status.state == ExecutionState.COMPLETED:
                 result.succeeded_count += 1
