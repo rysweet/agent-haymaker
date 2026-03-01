@@ -6,7 +6,8 @@ Public API (the "studs"):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from .models import DeploymentState
@@ -40,6 +41,18 @@ class Platform(Protocol):
 
     def log(self, message: str, level: str = "INFO", workload: str = "") -> None:
         """Log a message."""
+        ...
+
+    async def publish_event(self, topic: str, event: dict[str, Any]) -> None:
+        """Publish an event to the event bus."""
+        ...
+
+    async def subscribe(self, topic: str, callback: Callable[[dict[str, Any]], Any]) -> str:
+        """Subscribe to events on a topic. Returns subscription ID."""
+        ...
+
+    async def unsubscribe(self, subscription_id: str) -> None:
+        """Unsubscribe from events."""
         ...
 
 

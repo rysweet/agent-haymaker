@@ -73,13 +73,15 @@ async def _find_deployment_async(
 @click.option(
     "--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text"
 )
-def status(deployment_id: str, output_format: str) -> None:
+@click.option("--follow", is_flag=True, help="Follow status changes in real-time")
+def status(deployment_id: str, output_format: str, follow: bool) -> None:
     """Get deployment status.
 
     \b
     Examples:
         haymaker status dep-abc123
         haymaker status dep-abc123 --format json
+        haymaker status dep-abc123 --follow
     """
 
     async def _run() -> None:
@@ -97,6 +99,42 @@ def status(deployment_id: str, output_format: str) -> None:
                 click.echo(f"  Started:  {state.started_at}")
             if state.error:
                 click.echo(f"  Error:    {state.error}")
+
+        if follow:
+            import asyncio
+
+            from ..events import DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED, DEPLOYMENT_PHASE_CHANGED
+
+            platform = click.get_current_context().obj.get("platform")
+            if not platform or not hasattr(platform, "subscribe"):
+                click.echo("\nNote: Platform does not support event-based following.", err=True)
+                return
+
+            done = asyncio.Event()
+
+            async def _on_status_change(event: dict) -> None:
+                if event.get("deployment_id") != deployment_id:
+                    return
+                topic = event.get("topic", "")
+                if topic == DEPLOYMENT_PHASE_CHANGED:
+                    click.echo(f"  Phase:    {event.get('phase', 'unknown')}")
+                elif topic in (DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED):
+                    status_str = "completed" if topic == DEPLOYMENT_COMPLETED else "failed"
+                    click.echo(f"  Status:   {status_str}")
+                    done.set()
+
+            sub_ids = []
+            for t in [DEPLOYMENT_PHASE_CHANGED, DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED]:
+                sub_ids.append(await platform.subscribe(t, _on_status_change))
+
+            click.echo("\nFollowing status changes (Ctrl+C to stop)...")
+            try:
+                await done.wait()
+            except KeyboardInterrupt:
+                click.echo("\nStopped following.")
+            finally:
+                for sid in sub_ids:
+                    await platform.unsubscribe(sid)
 
     run_async(_run())
 

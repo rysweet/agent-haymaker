@@ -10,8 +10,10 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
+from ..events import DEPLOYMENT_LOG, WORKLOAD_PROGRESS
 from .models import CleanupReport, DeploymentConfig, DeploymentState
 from .platform import Platform
 
@@ -258,6 +260,62 @@ class WorkloadBase(ABC):
             logging.getLogger(f"workload.{self.name}").log(
                 getattr(logging, level.upper(), logging.INFO), message
             )
+
+    # =========================================================================
+    # Event emission helpers
+    # =========================================================================
+
+    async def emit_event(self, topic: str, deployment_id: str, **data: Any) -> None:
+        """Publish an event via the platform event bus.
+
+        Args:
+            topic: Event topic (use constants from agent_haymaker.events)
+            deployment_id: Associated deployment ID
+            **data: Additional event data
+        """
+        if self._platform:
+            event = {
+                "topic": topic,
+                "deployment_id": deployment_id,
+                "workload_name": self.name,
+                "timestamp": datetime.now(UTC).isoformat(),
+                **data,
+            }
+            await self._platform.publish_event(topic, event)
+
+    async def emit_progress(
+        self, deployment_id: str, phase: str, message: str, percent: float | None = None
+    ) -> None:
+        """Emit a progress event for a deployment.
+
+        Args:
+            deployment_id: Deployment ID
+            phase: Current execution phase
+            message: Human-readable progress message
+            percent: Optional completion percentage (0.0-100.0)
+        """
+        await self.emit_event(
+            WORKLOAD_PROGRESS,
+            deployment_id,
+            phase=phase,
+            message=message,
+            percent=percent,
+        )
+
+    async def emit_log(self, deployment_id: str, line: str, level: str = "INFO") -> None:
+        """Emit a log event for a deployment.
+
+        Args:
+            deployment_id: Deployment ID
+            line: Log line content
+            level: Log level (INFO, WARNING, ERROR, DEBUG)
+        """
+        await self.emit_event(
+            DEPLOYMENT_LOG,
+            deployment_id,
+            line=line,
+            level=level,
+        )
 
 
 class DeploymentError(Exception):

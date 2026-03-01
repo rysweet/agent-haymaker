@@ -37,6 +37,12 @@ from .workloads import (
 # LLM abstraction - lazy imports to avoid requiring LLM deps for basic usage
 # Use: from agent_haymaker.llm import create_llm_client, LLMConfig
 
+# Events - in-process async event bus
+# Use: from agent_haymaker.events import LocalEventBus, EventData
+
+# Orchestrator - parallel execution controller
+# Use: from agent_haymaker.orchestrator import FanOutController, ExecutionResult
+
 __version__ = "0.2.0"
 
 __all__ = [
