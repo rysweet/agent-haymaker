@@ -9,63 +9,10 @@ import sys
 import click
 
 from ..workloads import DeploymentStatus
-from ..workloads.base import DeploymentNotFoundError, WorkloadBase
+from ..workloads.base import DeploymentNotFoundError
 from ..workloads.models import DeploymentState
-from ..workloads.registry import WorkloadRegistry
+from .lookup import find_deployment_async
 from .main import cli, get_registry, run_async
-
-# Module-level cache: deployment_id -> workload_name
-# Provides O(1) lookup on repeated access to the same deployment.
-_deployment_index: dict[str, str] = {}
-
-
-async def find_deployment_async(
-    registry: WorkloadRegistry, deployment_id: str
-) -> tuple[WorkloadBase, DeploymentState]:
-    """Find the workload and state for a deployment ID.
-
-    Checks the module-level _deployment_index cache first for O(1) lookup,
-    falling back to scanning all registered workloads on cache miss.
-
-    Args:
-        registry: Workload registry to search
-        deployment_id: Deployment ID to find
-
-    Returns:
-        Tuple of (workload, state)
-
-    Raises:
-        click.ClickException: If deployment not found in any workload
-    """
-    # Check cache first for O(1) lookup
-    if deployment_id in _deployment_index:
-        cached_name = _deployment_index[deployment_id]
-        workload = registry.get_workload(cached_name)
-        if workload:
-            try:
-                state = await workload.get_status(deployment_id)
-                return workload, state
-            except DeploymentNotFoundError:
-                # Stale cache entry - remove and fall through to scan
-                del _deployment_index[deployment_id]
-
-    # Cache miss: scan all workloads
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = await workload.get_status(deployment_id)
-                # Cache the result for future lookups
-                _deployment_index[deployment_id] = name
-                return workload, state
-            except DeploymentNotFoundError:
-                continue
-    raise click.ClickException(f"Deployment '{deployment_id}' not found.")
-
-
-# =============================================================================
-# Status Command
-# =============================================================================
 
 
 @cli.command()
@@ -139,11 +86,6 @@ def status(deployment_id: str, output_format: str, follow: bool) -> None:
     run_async(_run())
 
 
-# =============================================================================
-# List Command
-# =============================================================================
-
-
 @cli.command("list")
 @click.option("--workload", "-w", help="Filter by workload name")
 @click.option("--status", "-s", help="Filter by status")
@@ -204,11 +146,6 @@ def list_deployments(
     run_async(_run())
 
 
-# =============================================================================
-# Logs Command
-# =============================================================================
-
-
 @cli.command()
 @click.argument("deployment_id")
 @click.option("--follow", "-f", is_flag=True, help="Follow logs in real-time")
@@ -234,11 +171,6 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
             sys.exit(1)
 
     run_async(_run())
-
-
-# =============================================================================
-# Stop Command
-# =============================================================================
 
 
 @cli.command()
@@ -275,11 +207,6 @@ def stop(deployment_id: str, yes: bool) -> None:
     run_async(_run())
 
 
-# =============================================================================
-# Start Command
-# =============================================================================
-
-
 @cli.command()
 @click.argument("deployment_id")
 def start(deployment_id: str) -> None:
@@ -310,11 +237,6 @@ def start(deployment_id: str) -> None:
             sys.exit(1)
 
     run_async(_run())
-
-
-# =============================================================================
-# Cleanup Command
-# =============================================================================
 
 
 @cli.command()

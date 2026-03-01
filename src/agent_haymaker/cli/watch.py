@@ -45,8 +45,7 @@ def watch(deployment_id: str, wait_for: str | None, timeout: int) -> None:
         registry = get_registry()
 
         # Verify deployment exists by looking it up
-        # Import the find helper from lifecycle
-        from .lifecycle import find_deployment_async
+        from .lookup import find_deployment_async
 
         _wl, state = await find_deployment_async(registry, deployment_id)
 
