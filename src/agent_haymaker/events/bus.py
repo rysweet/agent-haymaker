@@ -30,7 +30,9 @@ class _Subscription:
 
     id: str
     callback: Callable[[dict[str, Any]], Any]
-    queue: asyncio.Queue[dict[str, Any]] = field(default_factory=asyncio.Queue)
+    queue: asyncio.Queue[dict[str, Any]] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=10_000)
+    )
     task: asyncio.Task[None] | None = None
 
 
@@ -72,7 +74,14 @@ class LocalEventBus:
         if not subs:
             return
         for sub in subs.values():
-            sub.queue.put_nowait(event)
+            try:
+                sub.queue.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "Dropping event for subscription %s on topic %r: queue full",
+                    sub.id,
+                    topic,
+                )
 
     # ------------------------------------------------------------------
     # subscribe

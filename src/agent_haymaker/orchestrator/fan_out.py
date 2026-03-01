@@ -81,7 +81,6 @@ class FanOutController:
         # Per-execution state (not shared across concurrent execute() calls)
         semaphore = asyncio.Semaphore(self._max_parallelism)
         abort_event = asyncio.Event()
-        first_failure: list[Exception | None] = [None]
 
         execution_id = str(uuid4())
         started_at = datetime.now(UTC)
@@ -109,7 +108,6 @@ class FanOutController:
                     failure_mode,
                     semaphore,
                     abort_event,
-                    first_failure,
                 )
             )
             for item in items
@@ -138,7 +136,6 @@ class FanOutController:
         failure_mode: FailureMode,
         semaphore: asyncio.Semaphore,
         abort_event: asyncio.Event,
-        first_failure: list[Exception | None],
     ) -> ExecutionStatus:
         """Execute a single item with semaphore-based concurrency control."""
         deployment_id = item["deployment_id"]
@@ -176,12 +173,16 @@ class FanOutController:
             except Exception as exc:
                 status.state = ExecutionState.FAILED
                 status.completed_at = datetime.now(UTC)
-                status.error_message = str(exc)
-                logger.error("Failed %s/%s: %s", workload_name, deployment_id, exc)
+                status.error_message = f"{type(exc).__name__}: {exc}"
+                logger.error(
+                    "Failed %s/%s: %s",
+                    workload_name,
+                    deployment_id,
+                    exc,
+                    exc_info=True,
+                )
 
                 if failure_mode == FailureMode.FAIL_FAST:
-                    if first_failure[0] is None:
-                        first_failure[0] = exc
                     abort_event.set()
 
         return status

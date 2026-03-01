@@ -19,7 +19,7 @@ from .main import cli, get_registry, run_async
 _deployment_index: dict[str, str] = {}
 
 
-async def _find_deployment_async(
+async def find_deployment_async(
     registry: WorkloadRegistry, deployment_id: str
 ) -> tuple[WorkloadBase, DeploymentState]:
     """Find the workload and state for a deployment ID.
@@ -86,7 +86,7 @@ def status(deployment_id: str, output_format: str, follow: bool) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        _workload, state = await _find_deployment_async(registry, deployment_id)
+        _workload, state = await find_deployment_async(registry, deployment_id)
 
         if output_format == "json":
             click.echo(state.model_dump_json(indent=2))
@@ -225,7 +225,7 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, _state = await _find_deployment_async(registry, deployment_id)
+        wl, _state = await find_deployment_async(registry, deployment_id)
         try:
             async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
                 click.echo(line.rstrip())
@@ -255,7 +255,7 @@ def stop(deployment_id: str, yes: bool) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if state.status != DeploymentStatus.RUNNING:
             click.echo(f"Deployment is not running (status: {state.status})")
@@ -292,7 +292,7 @@ def start(deployment_id: str) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if state.status == DeploymentStatus.RUNNING:
             click.echo("Deployment is already running.")
@@ -335,7 +335,7 @@ def cleanup(deployment_id: str, yes: bool, dry_run: bool) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if dry_run:
             click.echo(f"Would clean up deployment: {deployment_id}")
