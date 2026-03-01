@@ -1,9 +1,9 @@
-"""Orchestrator module for fan-out parallel workload execution.
+"""Orchestrator module for parallel execution and Azure deployment workflows.
 
-Provides the FanOutController for running multiple async operations
-in parallel with concurrency limits and configurable failure modes.
-Adapted from AzureHayMaker's MetaOrchestrator/FanOutController
-patterns for local use without Azure dependencies.
+Provides:
+- FanOutController for parallel async operations with concurrency limits
+- 7-phase orchestration workflow for Azure deployments
+- Execution state tracking via Pydantic models
 
 Public API:
     FanOutController: Parallel execution controller with semaphore limiting.
@@ -11,10 +11,13 @@ Public API:
     ExecutionState: Enum for per-item execution states.
     ExecutionStatus: Pydantic model for per-item status tracking.
     ExecutionResult: Pydantic model for aggregated fan-out results.
+    run_orchestration: Execute the 7-phase Azure deployment workflow.
+    OrchestrationResult: Result of the orchestration run.
 """
 
 from .fan_out import FanOutController
 from .types import ExecutionResult, ExecutionState, ExecutionStatus, FailureMode
+from .workflow import OrchestrationPhase, OrchestrationResult, run_orchestration
 
 __all__ = [
     "FanOutController",
@@ -22,4 +25,7 @@ __all__ = [
     "ExecutionState",
     "ExecutionStatus",
     "ExecutionResult",
+    "run_orchestration",
+    "OrchestrationResult",
+    "OrchestrationPhase",
 ]

@@ -76,7 +76,7 @@ def cli(ctx: click.Context) -> None:
 # Import command modules to register commands with the cli group.
 # These imports must happen after cli is defined since the modules
 # import cli from this module.
-from . import deploy, lifecycle, watch, workload_mgmt  # noqa: E402, F401
+from . import azure_commands, deploy, lifecycle, watch, workload_mgmt  # noqa: E402, F401
 
 
 def main() -> None:
