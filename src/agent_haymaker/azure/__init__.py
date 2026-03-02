@@ -10,8 +10,11 @@ Public API:
     AzureConfig: Configuration for Azure deployment
     AzurePlatform: Platform implementation using Azure services
     ServiceBusEventBus: Event bus with Azure Service Bus dual-write
+    run_az: Safe Azure CLI subprocess wrapper
+    validate_resource_name: Azure resource name validator
 """
 
+from .az_cli import run_az, validate_resource_name
 from .config import AzureConfig
 from .platform import AzurePlatform
 from .service_bus import ServiceBusEventBus
@@ -20,4 +23,6 @@ __all__ = [
     "AzureConfig",
     "AzurePlatform",
     "ServiceBusEventBus",
+    "run_az",
+    "validate_resource_name",
 ]

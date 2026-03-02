@@ -17,7 +17,7 @@ Public API:
 
 from .fan_out import FanOutController
 from .types import ExecutionResult, ExecutionState, ExecutionStatus, FailureMode
-from .workflow import OrchestrationPhase, OrchestrationResult, run_orchestration
+from .workflow import OrchestrationPhase, OrchestrationResult, PhaseStatus, run_orchestration
 
 __all__ = [
     "FanOutController",
@@ -28,4 +28,5 @@ __all__ = [
     "run_orchestration",
     "OrchestrationResult",
     "OrchestrationPhase",
+    "PhaseStatus",
 ]

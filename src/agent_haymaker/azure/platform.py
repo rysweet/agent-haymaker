@@ -11,11 +11,23 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from typing import Any
 
 from ..workloads.file_platform import FilePlatform
+from .az_cli import run_az, sanitize_az_error
 from .config import AzureConfig
+from .container_apps import (
+    delete_container_app as _delete_container_app,
+)
+from .container_apps import (
+    deploy_container_app as _deploy_container_app,
+)
+from .container_apps import (
+    get_container_app_status as _get_container_app_status,
+)
+from .container_apps import (
+    list_managed_resources as _list_managed_resources,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -76,94 +88,64 @@ class AzurePlatform(FilePlatform):
     async def validate_environment(self) -> dict[str, Any]:
         """Validate Azure environment is ready for deployment.
 
-        Checks Azure CLI auth, subscription access, resource group exists,
-        and container registry accessibility.
-
-        Returns:
-            Dict with check results: {"check_name": {"status": "passed"|"failed", "message": "..."}}
+        Returns dict of check results: {"check": {"status": "passed"|"failed", "message": ...}}
         """
         results: dict[str, Any] = {}
+        sub_id = self._config.subscription_id
 
-        # Check Azure CLI is available and authenticated
-        rc, stdout, stderr = self._az_cli(["account", "show"])
-        if rc == 0:
-            account = json.loads(stdout)
-            results["azure_auth"] = {
-                "status": "passed",
-                "message": f"Authenticated as {account.get('user', {}).get('name', 'unknown')}",
-            }
-        else:
-            results["azure_auth"] = {
-                "status": "failed",
-                "message": stderr.strip(),
-            }
-            return results  # No point continuing if not authenticated
-
-        # Check subscription
-        rc, stdout, _ = self._az_cli(
-            [
-                "account",
-                "show",
-                "--subscription",
-                self._config.subscription_id,
-            ]
-        )
-        results["subscription"] = {
-            "status": "passed" if rc == 0 else "failed",
-            "message": f"Subscription {self._config.subscription_id}",
+        # Azure CLI auth
+        rc, stdout, stderr = run_az(["account", "show"])
+        if rc != 0:
+            results["azure_auth"] = {"status": "failed", "message": stderr.strip()}
+            return results
+        account = json.loads(stdout)
+        results["azure_auth"] = {
+            "status": "passed",
+            "message": f"Authenticated as {account.get('user', {}).get('name', 'unknown')}",
         }
 
-        # Check resource group
-        rc, stdout, _ = self._az_cli(
-            [
-                "group",
-                "show",
-                "--name",
-                self._config.resource_group,
-                "--subscription",
-                self._config.subscription_id,
-            ]
-        )
-        if rc == 0:
-            results["resource_group"] = {
-                "status": "passed",
-                "message": f"Resource group {self._config.resource_group} exists",
-            }
-        else:
-            results["resource_group"] = {
-                "status": "create_needed",
-                "message": f"Resource group {self._config.resource_group} does not exist",
-            }
+        # Subscription
+        rc, _, _ = run_az(["account", "show", "--subscription", sub_id])
+        results["subscription"] = {
+            "status": "passed" if rc == 0 else "failed",
+            "message": f"Subscription {sub_id}",
+        }
 
-        # Check container registry (if configured)
+        # Resource group
+        rg = self._config.resource_group
+        rc, _, _ = run_az(["group", "show", "--name", rg, "--subscription", sub_id])
+        results["resource_group"] = {
+            "status": "passed" if rc == 0 else "create_needed",
+            "message": f"Resource group {rg} {'exists' if rc == 0 else 'does not exist'}",
+        }
+
+        # Container registry (if configured)
         if self._config.container and self._config.container.registry:
-            registry_url = self._config.container.registry
-            # Public registries (mcr, docker.io, ghcr.io) don't need ACR validation
-            public_registries = ("mcr.microsoft.com", "docker.io", "ghcr.io")
-            if any(registry_url.startswith(pub) for pub in public_registries):
+            reg_url = self._config.container.registry
+            public = ("mcr.microsoft.com", "docker.io", "ghcr.io")
+            if any(reg_url.startswith(p) for p in public):
                 results["container_registry"] = {
                     "status": "passed",
-                    "message": f"Public registry {registry_url}",
+                    "message": f"Public registry {reg_url}",
                 }
             else:
-                registry = registry_url.split(".")[0]
-                rc, _, _ = self._az_cli(["acr", "show", "--name", registry])
+                rc, _, _ = run_az(["acr", "show", "--name", reg_url.split(".")[0]])
                 results["container_registry"] = {
                     "status": "passed" if rc == 0 else "failed",
-                    "message": f"Registry {registry_url}",
+                    "message": f"Registry {reg_url}",
                 }
 
-        # Check Key Vault (if configured)
+        # Key Vault (if configured)
         if self._config.key_vault_url:
-            vault_name = self._config.key_vault_url.split("//")[1].split(".")[0]
-            rc, _, _ = self._az_cli(["keyvault", "show", "--name", vault_name])
+            vault = self._config.key_vault_url.split("//")[1].split(".")[0]
+            rc, _, _ = run_az(["keyvault", "show", "--name", vault])
             results["key_vault"] = {
                 "status": "passed" if rc == 0 else "failed",
-                "message": f"Key Vault {vault_name}",
+                "message": f"Key Vault {vault}",
             }
 
-        overall = all(r.get("status") in ("passed", "create_needed") for r in results.values())
-        results["overall"] = {"status": "passed" if overall else "failed"}
+        ok = all(r.get("status") in ("passed", "create_needed") for r in results.values())
+        results["overall"] = {"status": "passed" if ok else "failed"}
         return results
 
     # -----------------------------------------------------------------
@@ -172,7 +154,7 @@ class AzurePlatform(FilePlatform):
 
     async def ensure_resource_group(self) -> bool:
         """Create resource group if it doesn't exist."""
-        rc, _, _ = self._az_cli(
+        rc, _, _ = run_az(
             [
                 "group",
                 "create",
@@ -208,7 +190,7 @@ class AzurePlatform(FilePlatform):
                 f"/resourceGroups/{self._config.resource_group}"
             )
 
-        rc, stdout, stderr = self._az_cli(
+        rc, stdout, stderr = run_az(
             [
                 "ad",
                 "sp",
@@ -222,7 +204,7 @@ class AzurePlatform(FilePlatform):
             ]
         )
         if rc != 0:
-            raise RuntimeError(f"Failed to create SP '{name}': {stderr}")
+            raise RuntimeError(f"Failed to create SP '{name}': {sanitize_az_error(stderr)}")
 
         sp_info = json.loads(stdout)
         _logger.info(
@@ -235,7 +217,7 @@ class AzurePlatform(FilePlatform):
         if self._config.key_vault_url and sp_info.get("password"):
             vault_name = self._config.key_vault_url.split("//")[1].split(".")[0]
             secret_name = name.replace(" ", "-").lower()
-            self._az_cli(
+            rc, _, kv_stderr = run_az(
                 [
                     "keyvault",
                     "secret",
@@ -245,16 +227,26 @@ class AzurePlatform(FilePlatform):
                     "--name",
                     secret_name,
                     "--value",
-                    sp_info["password"],
-                ]
+                    "@-",
+                ],
+                stdin_data=sp_info["password"],
             )
-            _logger.info("Stored SP secret in Key Vault: %s", secret_name)
+            if rc != 0:
+                _logger.warning(
+                    "Failed to store SP secret in Key Vault: %s",
+                    sanitize_az_error(kv_stderr),
+                )
+            else:
+                _logger.info("Stored SP secret in Key Vault: %s", secret_name)
+
+        # Redact password before returning -- callers should use Key Vault
+        sp_info.pop("password", None)
 
         return sp_info
 
     async def delete_service_principal(self, app_id: str) -> bool:
         """Delete a service principal by app ID."""
-        rc, _, stderr = self._az_cli(["ad", "sp", "delete", "--id", app_id])
+        rc, _, stderr = run_az(["ad", "sp", "delete", "--id", app_id])
         if rc != 0:
             _logger.error("Failed to delete SP %s: %s", app_id, stderr)
             return False
@@ -276,200 +268,30 @@ class AzurePlatform(FilePlatform):
     ) -> dict[str, Any]:
         """Deploy a workload as an Azure Container App.
 
-        Args:
-            deployment_id: Unique deployment identifier
-            workload_name: Workload name (used for app naming)
-            image: Container image (defaults to config)
-            env_vars: Environment variables to inject
-            cpu: CPU cores (defaults to config)
-            memory_gb: Memory in GB (defaults to config)
-
-        Returns:
-            Dict with container app details (fqdn, resourceId, etc.)
+        Delegates to container_apps.deploy_container_app().
         """
-        cfg = self._config.container
-        if cfg is None and image is None:
-            raise ValueError(
-                "No container configuration. Set container config or pass image parameter."
-            )
-
-        resolved_image = image or (cfg.image if cfg else "")
-        resolved_cpu = cpu or (cfg.cpu_cores if cfg else 1.0)
-        resolved_memory = memory_gb or (cfg.memory_gb if cfg else 4)
-        app_name = f"{workload_name}-{deployment_id[:8]}".lower().replace("_", "-")
-
-        # Ensure resource group exists
-        await self.ensure_resource_group()
-
-        # Build the az containerapp create command
-        cmd = [
-            "containerapp",
-            "create",
-            "--name",
-            app_name,
-            "--resource-group",
-            self._config.resource_group,
-            "--subscription",
-            self._config.subscription_id,
-            "--image",
-            resolved_image,
-            "--cpu",
-            str(resolved_cpu),
-            "--memory",
-            f"{resolved_memory}Gi",
-            "--min-replicas",
-            "1",
-            "--max-replicas",
-            "1",
-            "--tags",
-            f"haymaker-managed=true deployment-id={deployment_id} workload={workload_name}",
-        ]
-
-        # Add container environment if configured
-        if cfg and cfg.environment_name:
-            cmd.extend(["--environment", cfg.environment_name])
-
-        # Add private registry credentials (public registries don't need this)
-        if cfg and cfg.registry:
-            public_registries = ("mcr.microsoft.com", "docker.io", "ghcr.io")
-            if not any(cfg.registry.startswith(pub) for pub in public_registries):
-                cmd.extend(["--registry-server", cfg.registry])
-
-        # Add environment variables (each as separate key=value arg)
-        if env_vars:
-            cmd.append("--env-vars")
-            cmd.extend(f"{k}={v}" for k, v in env_vars.items())
-
-        rc, stdout, stderr = self._az_cli(cmd)
-        if rc != 0:
-            raise RuntimeError(f"Failed to deploy container app '{app_name}': {stderr}")
-
-        result = json.loads(stdout) if stdout.strip() else {}
-        _logger.info(
-            "Deployed container app: %s (image=%s, cpu=%s, mem=%sGi)",
-            app_name,
-            resolved_image,
-            resolved_cpu,
-            resolved_memory,
+        return await _deploy_container_app(
+            config=self._config,
+            deployment_id=deployment_id,
+            workload_name=workload_name,
+            image=image,
+            env_vars=env_vars,
+            cpu=cpu,
+            memory_gb=memory_gb,
+            ensure_rg=self.ensure_resource_group,
         )
-        props = result.get("properties") or {}
-        config_section = props.get("configuration") or {}
-        ingress = config_section.get("ingress") or {}
-        return {
-            "app_name": app_name,
-            "resource_id": result.get("id", ""),
-            "fqdn": ingress.get("fqdn", ""),
-            "provisioning_state": props.get("provisioningState", ""),
-        }
 
     async def get_container_app_status(self, app_name: str) -> dict[str, Any]:
         """Get the status of a container app."""
-        rc, stdout, stderr = self._az_cli(
-            [
-                "containerapp",
-                "show",
-                "--name",
-                app_name,
-                "--resource-group",
-                self._config.resource_group,
-                "--subscription",
-                self._config.subscription_id,
-            ]
-        )
-        if rc != 0:
-            return {"status": "not_found", "error": stderr.strip()}
-        data = json.loads(stdout)
-        return {
-            "status": data.get("properties", {}).get("provisioningState", "Unknown"),
-            "running_status": data.get("properties", {}).get("runningStatus", "Unknown"),
-        }
+        return await _get_container_app_status(self._config, app_name)
 
     async def delete_container_app(self, app_name: str) -> bool:
         """Delete a container app."""
-        rc, _, stderr = self._az_cli(
-            [
-                "containerapp",
-                "delete",
-                "--name",
-                app_name,
-                "--resource-group",
-                self._config.resource_group,
-                "--subscription",
-                self._config.subscription_id,
-                "--yes",
-            ]
-        )
-        if rc != 0:
-            _logger.error("Failed to delete container app %s: %s", app_name, stderr)
-            return False
-        _logger.info("Deleted container app: %s", app_name)
-        return True
+        return await _delete_container_app(self._config, app_name)
 
     async def list_managed_resources(self, deployment_id: str | None = None) -> list[dict]:
         """List all resources tagged as haymaker-managed."""
-        cmd = [
-            "resource",
-            "list",
-            "--resource-group",
-            self._config.resource_group,
-            "--subscription",
-            self._config.subscription_id,
-            "--tag",
-            "haymaker-managed=true",
-        ]
-        if deployment_id:
-            cmd.extend(["--tag", f"deployment-id={deployment_id}"])
-
-        rc, stdout, _ = self._az_cli(cmd)
-        if rc != 0:
-            return []
-        return json.loads(stdout) if stdout.strip() else []
-
-    # -----------------------------------------------------------------
-    # Azure CLI helper
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _az_cli(args: list[str], timeout: int = 120) -> tuple[int, str, str]:
-        """Run an Azure CLI command and return (returncode, stdout, stderr).
-
-        Searches common locations for the Azure CLI binary.
-        """
-        import shutil
-        from pathlib import Path
-
-        # Prefer well-known working locations before falling back to PATH
-        az_path = None
-        for candidate in [
-            Path.home() / "bin" / "az",
-            Path("/usr/local/bin/az"),
-        ]:
-            if candidate.exists():
-                az_path = str(candidate)
-                break
-        if az_path is None:
-            az_path = shutil.which("az") or "az"
-        cmd = [az_path] + args + ["--output", "json"]
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            return result.returncode, result.stdout, result.stderr
-        except FileNotFoundError:
-            return (
-                127,
-                "",
-                "Azure CLI (az) not found. Install: https://aka.ms/installazurecli",
-            )
-        except subprocess.TimeoutExpired:
-            return (
-                124,
-                "",
-                f"Azure CLI command timed out after {timeout}s",
-            )
+        return await _list_managed_resources(self._config, deployment_id)
 
 
 __all__ = ["AzurePlatform"]

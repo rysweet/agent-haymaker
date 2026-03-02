@@ -20,10 +20,10 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from pathlib import Path
 from typing import Any
 
 from ..events.bus import LocalEventBus
+from .az_cli import find_az_binary
 
 _logger = logging.getLogger(__name__)
 
@@ -119,22 +119,15 @@ class ServiceBusEventBus(LocalEventBus):
 
     def _cli_publish(self, event_json: str) -> None:
         """Fallback: publish via Azure CLI servicebus command."""
-        import shutil
-
-        az_path = None
-        for candidate in [
-            Path.home() / "bin" / "az",
-            Path("/usr/local/bin/az"),
-        ]:
-            if candidate.exists():
-                az_path = str(candidate)
-                break
-        if az_path is None:
-            az_path = shutil.which("az") or "az"
+        az_path = find_az_binary() or "az"
 
         cmd = [az_path, "servicebus", "topic", "send"]
 
         if self._connection_string:
+            _logger.warning(
+                "Using CLI for Service Bus (connection string visible in "
+                "process table). Install azure-servicebus for secure SDK."
+            )
             cmd.extend(["--connection-string", self._connection_string])
         elif self._namespace:
             cmd.extend(["--namespace-name", self._namespace])

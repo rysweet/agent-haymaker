@@ -4,60 +4,59 @@ Provides commands for deploying workloads to Azure Container Apps,
 validating Azure environment, and running the full orchestration workflow.
 """
 
+from __future__ import annotations
+
 import sys
+from typing import Any
 
 import click
 
 from .main import cli, run_async
 
 
+def _load_platform(config_file: str | None) -> tuple[Any, Any]:
+    """Load Azure config and create platform instance, or exit on error."""
+    from ..azure import AzureConfig, AzurePlatform
+
+    try:
+        config = AzureConfig.from_yaml(config_file) if config_file else AzureConfig.load()
+    except Exception as e:
+        click.echo(f"Error loading config: {e}", err=True)
+        sys.exit(1)
+    return config, AzurePlatform(config=config)
+
+
+def _print_orchestration_result(result: Any) -> None:
+    """Print orchestration result summary to stdout."""
+    click.echo(f"\n{'=' * 60}")
+    click.echo(f"Orchestration {result.status.upper()}")
+    click.echo(f"{'=' * 60}")
+    click.echo(f"  Run ID: {result.run_id}")
+    if result.duration_seconds:
+        click.echo(f"  Duration: {result.duration_seconds:.0f}s")
+    for phase in result.phases:
+        icon = "OK" if phase.status == "passed" else "FAIL"
+        click.echo(f"  [{icon}] {phase.phase}")
+        if phase.error:
+            click.echo(f"         Error: {phase.error}")
+    if result.summary:
+        click.echo(f"\n  Deployed: {result.summary.get('workloads_deployed', 0)}")
+        click.echo(f"  Failed: {result.summary.get('workloads_failed', 0)}")
+
+
 @cli.group()
 def azure() -> None:
-    """Azure deployment commands.
-
-    \b
-    Commands:
-        haymaker azure validate     - Check Azure environment
-        haymaker azure deploy       - Deploy workload to Azure
-        haymaker azure run          - Run full orchestration workflow
-        haymaker azure status       - Check Azure deployment status
-        haymaker azure cleanup      - Clean up Azure resources
-    """
+    """Azure deployment commands (validate, deploy, run, status, cleanup)."""
     pass
 
 
 @azure.command()
 @click.option("--config", "-c", "config_file", help="Path to azure.yaml config file")
 def validate(config_file: str | None) -> None:
-    """Validate Azure environment for deployment.
-
-    Checks Azure CLI authentication, subscription access,
-    resource group, container registry, and Key Vault.
-
-    \b
-    Examples:
-        haymaker azure validate
-        haymaker azure validate --config azure.yaml
-    """
+    """Validate Azure environment (CLI auth, subscription, ACR, Key Vault)."""
 
     async def _run() -> None:
-        from ..azure import AzureConfig, AzurePlatform
-
-        try:
-            if config_file:
-                config = AzureConfig.from_yaml(config_file)
-            else:
-                config = AzureConfig.load()
-        except Exception as e:
-            click.echo(f"Error loading config: {e}", err=True)
-            click.echo(
-                "\nSet AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID env vars "
-                "or create ~/.haymaker/azure.yaml",
-                err=True,
-            )
-            sys.exit(1)
-
-        platform = AzurePlatform(config=config)
+        _, platform = _load_platform(config_file)
         click.echo("Validating Azure environment...\n")
 
         results = await platform.validate_environment()
@@ -104,18 +103,7 @@ def azure_deploy(
     """
 
     async def _run() -> None:
-        from ..azure import AzureConfig, AzurePlatform
-
-        try:
-            if config_file:
-                config = AzureConfig.from_yaml(config_file)
-            else:
-                config = AzureConfig.load()
-        except Exception as e:
-            click.echo(f"Error loading config: {e}", err=True)
-            sys.exit(1)
-
-        platform = AzurePlatform(config=config)
+        config, platform = _load_platform(config_file)
 
         # Parse env vars
         env_vars = {}
@@ -149,36 +137,20 @@ def azure_deploy(
             )
             sys.exit(1)
 
-        # Create SP
-        import uuid
+        from ..azure.provisioning import provision_workload
 
-        dep_id = f"{workload_name}-{uuid.uuid4().hex[:8]}"
-        sp_name = f"haymaker-{dep_id}"
-        click.echo(f"  Creating service principal: {sp_name}")
-        sp_info = await platform.create_service_principal(sp_name)
-
-        # Inject credentials
-        env_vars.update(
-            {
-                "AZURE_TENANT_ID": config.tenant_id,
-                "AZURE_CLIENT_ID": sp_info.get("appId", ""),
-                "AZURE_CLIENT_SECRET": sp_info.get("password", ""),
-                "HAYMAKER_DEPLOYMENT_ID": dep_id,
-            }
-        )
-
-        # Deploy container
-        click.echo(f"  Deploying container app: {dep_id}")
-        result = await platform.deploy_container_app(
-            deployment_id=dep_id,
+        click.echo("  Provisioning workload...")
+        result = await provision_workload(
+            platform=platform,
             workload_name=workload_name,
             image=image,
             env_vars=env_vars,
         )
 
+        dep_id = result["deployment_id"]
         click.echo(f"\nDeployment started: {dep_id}")
         click.echo(f"  App name: {result.get('app_name', 'N/A')}")
-        click.echo(f"  Status: {result.get('provisioning_state', 'N/A')}")
+        click.echo(f"  Status: {result.get('status', 'N/A')}")
         click.echo(f"\nMonitor with: haymaker azure status {result.get('app_name', dep_id)}")
 
     run_async(_run())
@@ -213,23 +185,13 @@ def azure_run(
     """
 
     async def _run() -> None:
-        from ..azure import AzureConfig, AzurePlatform
         from ..orchestrator.workflow import run_orchestration
 
         if not workload:
             click.echo("Error: At least one --workload is required.", err=True)
             sys.exit(1)
 
-        try:
-            if config_file:
-                config = AzureConfig.from_yaml(config_file)
-            else:
-                config = AzureConfig.load()
-        except Exception as e:
-            click.echo(f"Error loading config: {e}", err=True)
-            sys.exit(1)
-
-        platform = AzurePlatform(config=config)
+        config, platform = _load_platform(config_file)
 
         workloads = [{"name": w, "image": image} for w in workload]
 
@@ -253,23 +215,7 @@ def azure_run(
             skip_validation=skip_validation,
         )
 
-        # Print results
-        click.echo(f"\n{'=' * 60}")
-        click.echo(f"Orchestration {result.status.upper()}")
-        click.echo(f"{'=' * 60}")
-        click.echo(f"  Run ID: {result.run_id}")
-        click.echo(f"  Duration: {result.duration_seconds:.0f}s" if result.duration_seconds else "")
-
-        for phase in result.phases:
-            icon = "OK" if phase.status == "passed" else "FAIL"
-            click.echo(f"  [{icon}] {phase.phase}")
-            if phase.error:
-                click.echo(f"         Error: {phase.error}")
-
-        if result.summary:
-            click.echo("\nSummary:")
-            click.echo(f"  Deployed: {result.summary.get('workloads_deployed', 0)}")
-            click.echo(f"  Failed: {result.summary.get('workloads_failed', 0)}")
+        _print_orchestration_result(result)
 
     run_async(_run())
 
@@ -286,15 +232,7 @@ def azure_status(app_name: str, config_file: str | None) -> None:
     """
 
     async def _run() -> None:
-        from ..azure import AzureConfig, AzurePlatform
-
-        try:
-            config = AzureConfig.from_yaml(config_file) if config_file else AzureConfig.load()
-        except Exception as e:
-            click.echo(f"Error loading config: {e}", err=True)
-            sys.exit(1)
-
-        platform = AzurePlatform(config=config)
+        _, platform = _load_platform(config_file)
         status = await platform.get_container_app_status(app_name)
 
         if status.get("status") == "not_found":
@@ -328,16 +266,7 @@ def azure_cleanup(
     """
 
     async def _run() -> None:
-        from ..azure import AzureConfig, AzurePlatform
-
-        try:
-            config = AzureConfig.from_yaml(config_file) if config_file else AzureConfig.load()
-        except Exception as e:
-            click.echo(f"Error loading config: {e}", err=True)
-            sys.exit(1)
-
-        platform = AzurePlatform(config=config)
-
+        _, platform = _load_platform(config_file)
         resources = await platform.list_managed_resources(deployment_id=deployment_id)
         if not resources:
             click.echo("No managed resources found.")
@@ -353,10 +282,12 @@ def azure_cleanup(
             click.echo("Aborted.")
             sys.exit(0)
 
+        from ..azure.az_cli import run_az
+
         deleted = 0
         for r in resources:
             rid = r.get("id", "")
-            rc, _, _ = platform._az_cli(["resource", "delete", "--ids", rid])
+            rc, _, _ = run_az(["resource", "delete", "--ids", rid])
             if rc == 0:
                 deleted += 1
                 click.echo(f"  Deleted: {r.get('name', rid)}")
