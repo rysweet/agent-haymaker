@@ -346,13 +346,14 @@ class AzurePlatform(FilePlatform):
             resolved_cpu,
             resolved_memory,
         )
+        props = result.get("properties") or {}
+        config_section = props.get("configuration") or {}
+        ingress = config_section.get("ingress") or {}
         return {
             "app_name": app_name,
             "resource_id": result.get("id", ""),
-            "fqdn": ((result.get("properties") or {}).get("configuration") or {})
-            .get("ingress", {})
-            .get("fqdn", ""),
-            "provisioning_state": result.get("properties", {}).get("provisioningState", ""),
+            "fqdn": ingress.get("fqdn", ""),
+            "provisioning_state": props.get("provisioningState", ""),
         }
 
     async def get_container_app_status(self, app_name: str) -> dict[str, Any]:
