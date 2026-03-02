@@ -9,63 +9,10 @@ import sys
 import click
 
 from ..workloads import DeploymentStatus
-from ..workloads.base import DeploymentNotFoundError, WorkloadBase
+from ..workloads.base import DeploymentNotFoundError
 from ..workloads.models import DeploymentState
-from ..workloads.registry import WorkloadRegistry
+from .lookup import find_deployment_async
 from .main import cli, get_registry, run_async
-
-# Module-level cache: deployment_id -> workload_name
-# Provides O(1) lookup on repeated access to the same deployment.
-_deployment_index: dict[str, str] = {}
-
-
-async def _find_deployment_async(
-    registry: WorkloadRegistry, deployment_id: str
-) -> tuple[WorkloadBase, DeploymentState]:
-    """Find the workload and state for a deployment ID.
-
-    Checks the module-level _deployment_index cache first for O(1) lookup,
-    falling back to scanning all registered workloads on cache miss.
-
-    Args:
-        registry: Workload registry to search
-        deployment_id: Deployment ID to find
-
-    Returns:
-        Tuple of (workload, state)
-
-    Raises:
-        click.ClickException: If deployment not found in any workload
-    """
-    # Check cache first for O(1) lookup
-    if deployment_id in _deployment_index:
-        cached_name = _deployment_index[deployment_id]
-        workload = registry.get_workload(cached_name)
-        if workload:
-            try:
-                state = await workload.get_status(deployment_id)
-                return workload, state
-            except DeploymentNotFoundError:
-                # Stale cache entry - remove and fall through to scan
-                del _deployment_index[deployment_id]
-
-    # Cache miss: scan all workloads
-    for name in registry.list_workloads():
-        workload = registry.get_workload(name)
-        if workload:
-            try:
-                state = await workload.get_status(deployment_id)
-                # Cache the result for future lookups
-                _deployment_index[deployment_id] = name
-                return workload, state
-            except DeploymentNotFoundError:
-                continue
-    raise click.ClickException(f"Deployment '{deployment_id}' not found.")
-
-
-# =============================================================================
-# Status Command
-# =============================================================================
 
 
 @cli.command()
@@ -73,18 +20,20 @@ async def _find_deployment_async(
 @click.option(
     "--format", "-f", "output_format", type=click.Choice(["text", "json"]), default="text"
 )
-def status(deployment_id: str, output_format: str) -> None:
+@click.option("--follow", is_flag=True, help="Follow status changes in real-time")
+def status(deployment_id: str, output_format: str, follow: bool) -> None:
     """Get deployment status.
 
     \b
     Examples:
         haymaker status dep-abc123
         haymaker status dep-abc123 --format json
+        haymaker status dep-abc123 --follow
     """
 
     async def _run() -> None:
         registry = get_registry()
-        _workload, state = await _find_deployment_async(registry, deployment_id)
+        _workload, state = await find_deployment_async(registry, deployment_id)
 
         if output_format == "json":
             click.echo(state.model_dump_json(indent=2))
@@ -98,12 +47,43 @@ def status(deployment_id: str, output_format: str) -> None:
             if state.error:
                 click.echo(f"  Error:    {state.error}")
 
+        if follow:
+            import asyncio
+
+            from ..events import DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED, DEPLOYMENT_PHASE_CHANGED
+
+            platform = click.get_current_context().obj.get("platform")
+            if not platform or not hasattr(platform, "subscribe"):
+                click.echo("\nNote: Platform does not support event-based following.", err=True)
+                return
+
+            done = asyncio.Event()
+
+            async def _on_status_change(event: dict) -> None:
+                if event.get("deployment_id") != deployment_id:
+                    return
+                topic = event.get("topic", "")
+                if topic == DEPLOYMENT_PHASE_CHANGED:
+                    click.echo(f"  Phase:    {event.get('phase', 'unknown')}")
+                elif topic in (DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED):
+                    status_str = "completed" if topic == DEPLOYMENT_COMPLETED else "failed"
+                    click.echo(f"  Status:   {status_str}")
+                    done.set()
+
+            sub_ids = []
+            for t in [DEPLOYMENT_PHASE_CHANGED, DEPLOYMENT_COMPLETED, DEPLOYMENT_FAILED]:
+                sub_ids.append(await platform.subscribe(t, _on_status_change))
+
+            click.echo("\nFollowing status changes (Ctrl+C to stop)...")
+            try:
+                await done.wait()
+            except KeyboardInterrupt:
+                click.echo("\nStopped following.")
+            finally:
+                for sid in sub_ids:
+                    await platform.unsubscribe(sid)
+
     run_async(_run())
-
-
-# =============================================================================
-# List Command
-# =============================================================================
 
 
 @cli.command("list")
@@ -166,11 +146,6 @@ def list_deployments(
     run_async(_run())
 
 
-# =============================================================================
-# Logs Command
-# =============================================================================
-
-
 @cli.command()
 @click.argument("deployment_id")
 @click.option("--follow", "-f", is_flag=True, help="Follow logs in real-time")
@@ -187,7 +162,7 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, _state = await _find_deployment_async(registry, deployment_id)
+        wl, _state = await find_deployment_async(registry, deployment_id)
         try:
             async for line in wl.get_logs(deployment_id, follow=follow, lines=lines):
                 click.echo(line.rstrip())
@@ -196,11 +171,6 @@ def logs(deployment_id: str, follow: bool, lines: int) -> None:
             sys.exit(1)
 
     run_async(_run())
-
-
-# =============================================================================
-# Stop Command
-# =============================================================================
 
 
 @cli.command()
@@ -217,7 +187,7 @@ def stop(deployment_id: str, yes: bool) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if state.status != DeploymentStatus.RUNNING:
             click.echo(f"Deployment is not running (status: {state.status})")
@@ -237,11 +207,6 @@ def stop(deployment_id: str, yes: bool) -> None:
     run_async(_run())
 
 
-# =============================================================================
-# Start Command
-# =============================================================================
-
-
 @cli.command()
 @click.argument("deployment_id")
 def start(deployment_id: str) -> None:
@@ -254,7 +219,7 @@ def start(deployment_id: str) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if state.status == DeploymentStatus.RUNNING:
             click.echo("Deployment is already running.")
@@ -272,11 +237,6 @@ def start(deployment_id: str) -> None:
             sys.exit(1)
 
     run_async(_run())
-
-
-# =============================================================================
-# Cleanup Command
-# =============================================================================
 
 
 @cli.command()
@@ -297,7 +257,7 @@ def cleanup(deployment_id: str, yes: bool, dry_run: bool) -> None:
 
     async def _run() -> None:
         registry = get_registry()
-        wl, state = await _find_deployment_async(registry, deployment_id)
+        wl, state = await find_deployment_async(registry, deployment_id)
 
         if dry_run:
             click.echo(f"Would clean up deployment: {deployment_id}")

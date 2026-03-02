@@ -12,11 +12,12 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
+from .event_helpers import EventEmitterMixin
 from .models import CleanupReport, DeploymentConfig, DeploymentState
 from .platform import Platform
 
 
-class WorkloadBase(ABC):
+class WorkloadBase(EventEmitterMixin, ABC):
     """Base class all workloads inherit from.
 
     Platform handles lifecycle commands universally through this interface.

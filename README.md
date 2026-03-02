@@ -1,218 +1,254 @@
 # Agent Haymaker
 
-Universal workload orchestration platform for Azure and M365 telemetry generation.
+Event-driven workload orchestration platform for deploying and managing agents in Azure.
 
 ## Overview
 
-Agent Haymaker is a platform that enables deploying and managing **workloads** - specialized agents that generate realistic telemetry in Azure tenants and M365 environments. The platform provides:
+Agent Haymaker is the platform layer that deploys **workloads** (specialized agents that generate telemetry) to Azure Container Apps, manages their lifecycle, and streams events in real-time via Azure Service Bus. The platform provides:
 
-- **Universal CLI** for lifecycle management (deploy, status, stop, cleanup)
-- **WorkloadBase** interface that all workloads implement
-- **Workload Registry** for discovering and installing workloads
-- **State management** for tracking deployments
-- **Credential management** integration with Azure Key Vault
-
-## Architecture
+- **Azure deployment** - Container Apps, Service Principals, Key Vault credential storage
+- **7-phase orchestration** - validate, provision, monitor, cleanup, report
+- **Event-driven architecture** - Azure Service Bus for real-time streaming, local event bus for development
+- **Universal CLI** - deploy, status, watch, logs, stop, cleanup
+- **WorkloadBase interface** - plug-in any workload package
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    AGENT HAYMAKER PLATFORM                       │
-│                                                                  │
-│  WorkloadBase (interface)         Universal CLI                  │
-│  ├── deploy()                     ├── haymaker deploy            │
-│  ├── get_status()                 ├── haymaker status            │
-│  ├── stop()                       ├── haymaker stop              │
-│  ├── start()                      ├── haymaker start             │
-│  ├── cleanup()                    ├── haymaker cleanup           │
-│  └── get_logs()                   └── haymaker logs              │
-│                                                                  │
-│  Workload Registry    State Storage    Credential Management     │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     AGENT HAYMAKER PLATFORM                         │
+│                                                                     │
+│  AzurePlatform (cloud)              FilePlatform (local dev)        │
+│  ├── Container App deployment       ├── File-based state            │
+│  ├── Service Principal mgmt         ├── Local event bus             │
+│  ├── Key Vault credentials          └── Env var credentials         │
+│  ├── Service Bus event streaming                                    │
+│  └── Resource lifecycle mgmt                                        │
+│                                                                     │
+│  Orchestrator                       Event Bus                       │
+│  ├── 7-phase workflow               ├── ServiceBusEventBus (Azure)  │
+│  ├── FanOutController               └── LocalEventBus (local)       │
+│  └── Execution tracking                                             │
+│                                                                     │
+│  CLI: haymaker                                                      │
+│  ├── deploy / status / stop / start / cleanup / logs                │
+│  ├── watch (real-time event streaming)                              │
+│  └── azure validate / deploy / run / status / cleanup               │
+└─────────────────────────────────────────────────────────────────────┘
                               │
                    implements │ WorkloadBase
                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    WORKLOAD PACKAGES                             │
-│                                                                  │
-│  haymaker-azure-workloads       haymaker-m365-workloads          │
-│  ├── Azure infrastructure       ├── Knowledge workers            │
-│  ├── Goal-seeking agents        ├── M365 operations              │
-│  └── Scenario execution         └── Entra identity mgmt          │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                       WORKLOAD PACKAGES                             │
+│                                                                     │
+│  haymaker-azure-workloads         haymaker-m365-workloads           │
+│  ├── 15 Azure infra scenarios     ├── Knowledge workers             │
+│  ├── Goal-seeking agents          ├── Email/Teams/Docs generation   │
+│  └── az CLI-based provisioning    └── Entra identity management     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
 
 ```bash
+# Core platform
 pip install agent-haymaker
+
+# With Azure deployment support (Container Apps, Service Bus, Key Vault)
+pip install agent-haymaker[azure]
+
+# With LLM provider support (Anthropic, Azure OpenAI, Azure AI Foundry)
+pip install agent-haymaker[llm]
+
+# Everything
+pip install agent-haymaker[azure,llm]
 ```
 
 ## Quick Start
 
-### 1. Install a Workload
+### Local Development (no Azure required)
 
 ```bash
-# From git repository
-haymaker workload install https://github.com/rysweet/haymaker-m365-workloads
+# Install a workload
+haymaker workload install https://github.com/rysweet/haymaker-workload-starter
 
-# From local path
-haymaker workload install ./my-workload
-```
+# Deploy locally
+haymaker deploy my-workload --config goal_file=goals/sample.md
 
-### 2. Deploy
+# Watch events in real-time
+haymaker watch <deployment-id>
 
-```bash
-# Deploy M365 knowledge workers
-haymaker deploy m365-knowledge-worker --config workers=25 --config department=sales
-
-# Deploy Azure infrastructure scenario
-haymaker deploy azure-infrastructure --config scenario=linux-vm-web-server
-```
-
-### 3. Manage
-
-```bash
 # Check status
-haymaker status dep-abc123
+haymaker status <deployment-id>
+haymaker status <deployment-id> --follow
 
 # View logs
-haymaker logs dep-abc123 --follow
+haymaker logs <deployment-id> --follow
 
-# Stop
-haymaker stop dep-abc123
-
-# Resume
-haymaker start dep-abc123
-
-# Clean up resources
-haymaker cleanup dep-abc123
+# Clean up
+haymaker cleanup <deployment-id>
 ```
 
-### 4. List
+### Azure Deployment
 
 ```bash
-# List all deployments
-haymaker list
+# Configure Azure (env vars or ~/.haymaker/azure.yaml)
+export AZURE_TENANT_ID="00000000-..."
+export AZURE_SUBSCRIPTION_ID="00000000-..."
+export HAYMAKER_RESOURCE_GROUP="haymaker-rg"
+export HAYMAKER_CONTAINER_REGISTRY="myregistry.azurecr.io"
+export HAYMAKER_CONTAINER_IMAGE="myregistry.azurecr.io/agent:latest"
+export HAYMAKER_CONTAINER_ENV_NAME="haymaker-env"
+export HAYMAKER_SERVICEBUS_CONNECTION="Endpoint=sb://..."  # REQUIRED for Azure
 
-# Filter by workload
-haymaker list --workload m365-knowledge-worker
+# Validate environment
+haymaker azure validate
 
-# Filter by status
-haymaker list --status running
-```
+# Deploy a workload to Azure Container Apps
+haymaker azure deploy azure-infrastructure --image myregistry.azurecr.io/agent:latest
 
-## LLM Integration
+# Run full 7-phase orchestration
+haymaker azure run \
+  -w azure-infrastructure \
+  -w m365-knowledge-worker \
+  --duration 8 \
+  --interval 15
 
-Agent Haymaker includes a multi-provider LLM abstraction layer that workloads can use for AI-powered content generation, adaptive agents, and intelligent operations.
+# Check Azure container status
+haymaker azure status <app-name>
 
-### Supported Providers
-
-| Provider | Models | Authentication |
-|----------|--------|----------------|
-| Anthropic Claude | Claude Sonnet, Opus | API key |
-| Azure OpenAI | GPT-4, GPT-4o | API key or managed identity |
-| Azure AI Foundry | Llama, Mistral, Phi | API key or managed identity |
-
-### Install LLM Dependencies
-
-```bash
-pip install agent-haymaker[llm]
-```
-
-### Usage
-
-```python
-from agent_haymaker.llm import create_llm_client, LLMConfig, LLMMessage
-
-# Configure from environment variables
-config = LLMConfig.from_env()
-client = create_llm_client(config)
-
-# Generate content
-messages = [LLMMessage(role="user", content="Write a professional email about Q4 results")]
-response = client.create_message(messages, system="You are a business writer.")
-print(response.content)
+# Clean up Azure resources
+haymaker azure cleanup --all
 ```
 
 ### Configuration
 
-Set environment variables (see `.env.example`):
+Azure settings can be provided via environment variables or `~/.haymaker/azure.yaml`:
 
-```bash
-# Anthropic
-export LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
+```yaml
+tenant_id: "00000000-..."
+subscription_id: "00000000-..."
+resource_group: "haymaker-rg"
+location: "eastus"
 
-# Azure OpenAI (with managed identity)
-export LLM_PROVIDER=azure_openai
-export AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
-export AZURE_OPENAI_DEPLOYMENT=gpt-4
+container:
+  registry: "myregistry.azurecr.io"
+  image: "haymaker-agent:latest"
+  environment_name: "haymaker-env"
+  memory_gb: 2
+  cpu_cores: 1.0
 
-# Azure AI Foundry
-export LLM_PROVIDER=azure_ai_foundry
-export AZURE_AI_FOUNDRY_ENDPOINT=https://myendpoint.inference.ai.azure.com
-export AZURE_AI_FOUNDRY_MODEL=meta-llama-3
+service_bus:
+  connection_string: "Endpoint=sb://..."
+  topic_name: "agent-logs"
+
+key_vault_url: "https://myvault.vault.azure.net/"
+```
+
+## Architecture
+
+### Two Platforms
+
+| Platform | Event Bus | Use Case |
+|----------|-----------|----------|
+| `FilePlatform` | `LocalEventBus` (asyncio) | Local development, testing, no Azure |
+| `AzurePlatform` | `ServiceBusEventBus` (Azure Service Bus) | Cloud deployment (Service Bus **required**) |
+
+`AzurePlatform` refuses to start without Service Bus configuration. There is no silent fallback to local events - if you're on Azure, you get Service Bus. For local development, use `FilePlatform`.
+
+### Event Bus
+
+Events flow through the bus using a dual-write pattern (when on Azure):
+
+```
+WorkloadBase.emit_event()
+       │
+       ▼
+Platform.publish_event()
+       │
+       ▼
+ServiceBusEventBus.publish()
+       ├── WRITE 1: Azure Service Bus topic (real-time, external consumers)
+       └── WRITE 2: Local asyncio bus (CLI watch, status --follow)
+```
+
+**Event types:**
+- `deployment.started` / `deployment.completed` / `deployment.failed`
+- `deployment.phase_changed` / `deployment.stopped`
+- `deployment.log` / `workload.progress`
+- `resource.created` / `resource.deleted`
+
+### 7-Phase Orchestration Workflow
+
+The `haymaker azure run` command executes a complete deployment pipeline:
+
+1. **Validation** - Check Azure CLI auth, subscription, resource group, registry
+2. **Selection** - Validate workload list
+3. **Provisioning** - Create Service Principals + deploy Container Apps (parallel)
+4. **Monitoring** - Periodic status checks for configured duration
+5. **Cleanup Verification** - Check all managed resources are deleted
+6. **Forced Cleanup** - Delete remaining resources if needed
+7. **Reporting** - Generate execution summary
+
+### FanOutController
+
+For parallel workload execution with concurrency control:
+
+```python
+from agent_haymaker.orchestrator import FanOutController, FailureMode
+
+controller = FanOutController(max_parallelism=5)
+result = await controller.execute(
+    items=[
+        {"deployment_id": "dep-1", "workload_name": "w1"},
+        {"deployment_id": "dep-2", "workload_name": "w2"},
+    ],
+    execute_fn=my_async_function,
+    failure_mode=FailureMode.CONTINUE,  # or FAIL_FAST
+)
+print(f"Succeeded: {result.succeeded_count}/{result.total_count}")
 ```
 
 ## Creating a Workload
 
-Workloads are Python packages that implement the `WorkloadBase` interface.
+Workloads are Python packages that implement the `WorkloadBase` interface and register via entry points.
 
-### 1. Create the Package Structure
-
-```
-my-workload/
-├── pyproject.toml
-├── workload.yaml
-├── src/
-│   └── my_workload/
-│       ├── __init__.py
-│       └── workload.py
-└── README.md
-```
-
-### 2. Implement WorkloadBase
+### Implement WorkloadBase
 
 ```python
-# src/my_workload/workload.py
-from agent_haymaker import WorkloadBase, DeploymentState, DeploymentConfig, CleanupReport
+from agent_haymaker import WorkloadBase, DeploymentConfig, DeploymentState
+from agent_haymaker.workloads.models import CleanupReport, DeploymentStatus
 
 class MyWorkload(WorkloadBase):
     name = "my-workload"
 
     async def deploy(self, config: DeploymentConfig) -> str:
-        # Start deployment, return deployment_id
-        deployment_id = generate_id()
-        # ... your deployment logic
+        deployment_id = f"{self.name}-{uuid4().hex[:8]}"
+        await self.emit_event("deployment.started", deployment_id)
+        # ... your deployment logic ...
+        await self.emit_progress(deployment_id, "running", "Deployed", percent=100.0)
         return deployment_id
 
-    async def get_status(self, deployment_id: str) -> DeploymentState:
-        # Return current state
-        return DeploymentState(
-            deployment_id=deployment_id,
-            workload_name=self.name,
-            status="running",
-            phase="executing",
-        )
-
-    async def stop(self, deployment_id: str) -> bool:
-        # Stop the deployment
-        return True
-
-    async def cleanup(self, deployment_id: str) -> CleanupReport:
-        # Clean up all resources
-        return CleanupReport(
-            deployment_id=deployment_id,
-            resources_deleted=10,
-        )
-
-    async def get_logs(self, deployment_id: str, follow: bool = False, lines: int = 100):
-        # Yield log lines
-        yield "Log line 1"
-        yield "Log line 2"
+    async def get_status(self, deployment_id: str) -> DeploymentState: ...
+    async def stop(self, deployment_id: str) -> bool: ...
+    async def cleanup(self, deployment_id: str) -> CleanupReport: ...
+    async def get_logs(self, deployment_id, follow=False, lines=100): ...
 ```
 
-### 3. Register via Entry Point
+### Event Emission Helpers
+
+Workloads can emit structured events through the platform:
+
+```python
+# Generic event
+await self.emit_event("deployment.phase_changed", deployment_id, phase="executing")
+
+# Progress update
+await self.emit_progress(deployment_id, "phase-2", "Processing items", percent=45.0)
+
+# Log line
+await self.emit_log(deployment_id, "Created 5 resources", level="INFO")
+```
+
+### Register via Entry Point
 
 ```toml
 # pyproject.toml
@@ -220,37 +256,77 @@ class MyWorkload(WorkloadBase):
 my-workload = "my_workload:MyWorkload"
 ```
 
-### 4. Create workload.yaml
-
-```yaml
-name: my-workload
-version: "1.0.0"
-type: runtime
-description: "My custom workload"
-
-entrypoint: my_workload:MyWorkload
-
-targets:
-  - type: azure_subscription
-    required_roles:
-      - Contributor
-```
-
 ## Available Workloads
 
 | Workload | Description | Repository |
 |----------|-------------|------------|
-| `azure-infrastructure` | Azure scenario execution with goal-seeking agents | [haymaker-azure-workloads](https://github.com/rysweet/haymaker-azure-workloads) |
+| `azure-infrastructure` | 15 Azure infra scenarios with goal-seeking agents | [haymaker-azure-workloads](https://github.com/rysweet/haymaker-azure-workloads) |
 | `m365-knowledge-worker` | M365 knowledge worker simulation | [haymaker-m365-workloads](https://github.com/rysweet/haymaker-m365-workloads) |
+| `my-workload` | Goal-seeking agent workload starter template | [haymaker-workload-starter](https://github.com/rysweet/haymaker-workload-starter) |
+
+## LLM Integration
+
+Multi-provider LLM abstraction for AI-powered workloads.
+
+```bash
+pip install agent-haymaker[llm]
+```
+
+```python
+from agent_haymaker.llm import create_llm_client, LLMConfig, LLMMessage
+
+config = LLMConfig.from_env()  # Reads LLM_PROVIDER, API keys from env
+client = create_llm_client(config)
+response = client.create_message(
+    [LLMMessage(role="user", content="Write a status report")],
+    system="You are a business writer.",
+)
+```
+
+Supported: Anthropic Claude, Azure OpenAI, Azure AI Foundry.
+
+## Project Structure
+
+```
+src/agent_haymaker/
+├── __init__.py              # Top-level public API
+├── cli/                     # CLI commands
+│   ├── main.py              # haymaker root group
+│   ├── deploy.py            # haymaker deploy
+│   ├── lifecycle.py         # status, list, logs, stop, start, cleanup
+│   ├── watch.py             # haymaker watch (real-time events)
+│   ├── azure_commands.py    # haymaker azure validate/deploy/run/status/cleanup
+│   ├── lookup.py            # Deployment lookup helper
+│   └── workload_mgmt.py     # haymaker workload list/install/info
+├── events/                  # Event bus infrastructure
+│   ├── bus.py               # LocalEventBus (asyncio queues)
+│   └── types.py             # Event type constants, EventData model
+├── orchestrator/            # Execution control
+│   ├── fan_out.py           # FanOutController (parallel with semaphore)
+│   ├── workflow.py          # 7-phase orchestration pipeline
+│   └── types.py             # ExecutionState, ExecutionResult models
+├── azure/                   # Azure deployment infrastructure
+│   ├── config.py            # AzureConfig (env/YAML loading)
+│   ├── platform.py          # AzurePlatform (Container Apps, SPs, Key Vault)
+│   └── service_bus.py       # ServiceBusEventBus (dual-write)
+├── workloads/               # Workload plugin system
+│   ├── platform.py          # Platform protocol
+│   ├── base.py              # WorkloadBase ABC
+│   ├── event_helpers.py     # EventEmitterMixin
+│   ├── file_platform.py     # FilePlatform (local development)
+│   ├── models.py            # DeploymentState, DeploymentConfig, etc.
+│   └── registry.py          # WorkloadRegistry (entry-point discovery)
+└── llm/                     # LLM abstraction layer
+    ├── config.py            # LLMConfig
+    ├── factory.py           # create_llm_client()
+    └── providers/           # Anthropic, Azure OpenAI, Azure AI Foundry
+```
 
 ## Development
 
 ```bash
-# Clone
 git clone https://github.com/rysweet/agent-haymaker
 cd agent-haymaker
-
-# Install dev dependencies
 pip install -e ".[dev]"
 
 # Run tests
@@ -258,12 +334,8 @@ pytest
 
 # Lint
 ruff check src/
-pyright
+ruff format --check src/
 ```
-
-## Documentation
-
-- [LLM Provider Configuration Guide](docs/llm-providers.md) - Detailed provider setup, async usage, error handling, and custom providers
 
 ## License
 

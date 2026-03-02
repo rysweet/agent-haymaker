@@ -12,8 +12,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+from ..events import LocalEventBus
 from .models import DeploymentState
 
 _logger = logging.getLogger(__name__)
@@ -76,6 +79,7 @@ class FilePlatform:
             state_dir = Path.home() / ".haymaker" / "state"
         self._state_dir = state_dir
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        self._event_bus = LocalEventBus()
 
     def _state_path(self, deployment_id: str) -> Path:
         """Get the file path for a deployment's state.
@@ -173,6 +177,18 @@ class FilePlatform:
         logger = logging.getLogger(logger_name)
         log_level = getattr(logging, level.upper(), logging.INFO)
         logger.log(log_level, message)
+
+    async def publish_event(self, topic: str, event: dict[str, Any]) -> None:
+        """Publish an event via the local event bus."""
+        await self._event_bus.publish(topic, event)
+
+    async def subscribe(self, topic: str, callback: Callable[[dict[str, Any]], Any]) -> str:
+        """Subscribe to events on a topic."""
+        return await self._event_bus.subscribe(topic, callback)
+
+    async def unsubscribe(self, subscription_id: str) -> None:
+        """Unsubscribe from events."""
+        await self._event_bus.unsubscribe(subscription_id)
 
 
 __all__ = ["FilePlatform"]
