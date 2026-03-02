@@ -51,16 +51,16 @@ class ServiceBusEventBus(LocalEventBus):
         topic_name: str = "agent-logs",
         namespace: str | None = None,
     ) -> None:
+        if connection_string is None and namespace is None:
+            raise ValueError(
+                "ServiceBusEventBus requires either connection_string or namespace. "
+                "For local-only events, use LocalEventBus instead."
+            )
         super().__init__()
         self._connection_string = connection_string
         self._topic_name = topic_name
         self._namespace = namespace
-        self._sb_available = connection_string is not None or namespace is not None
-
-        if self._sb_available:
-            _logger.info("ServiceBusEventBus: dual-write enabled (topic=%s)", topic_name)
-        else:
-            _logger.info("ServiceBusEventBus: local-only mode (no Service Bus configured)")
+        _logger.info("ServiceBusEventBus: dual-write enabled (topic=%s)", topic_name)
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         """Dual-write: publish to Service Bus AND local subscribers.
@@ -68,11 +68,13 @@ class ServiceBusEventBus(LocalEventBus):
         Service Bus write is best-effort: failures are logged but don't
         prevent local delivery.
         """
-        # WRITE 1: Azure Service Bus (real-time streaming)
-        if self._sb_available:
+        # WRITE 1: Azure Service Bus (real-time streaming, best-effort)
+        try:
             await self._publish_to_service_bus(topic, event)
+        except Exception:
+            _logger.warning("Service Bus publish failed", exc_info=True)
 
-        # WRITE 2: Local in-process subscribers (always)
+        # WRITE 2: Local in-process subscribers (CLI watch, etc.)
         await super().publish(topic, event)
 
     async def _publish_to_service_bus(self, topic: str, event: dict[str, Any]) -> None:

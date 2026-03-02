@@ -45,19 +45,25 @@ class AzurePlatform(FilePlatform):
         super().__init__()
         self._config = config
 
-        # Replace local event bus with Service Bus dual-write when configured
+        # AzurePlatform REQUIRES Service Bus - no silent local fallback.
+        # Use FilePlatform if you want local-only events.
         sb_cfg = config.service_bus
-        if sb_cfg and (sb_cfg.connection_string or sb_cfg.namespace):
-            from .service_bus import ServiceBusEventBus
+        if not sb_cfg or not (sb_cfg.connection_string or sb_cfg.namespace):
+            raise ValueError(
+                "AzurePlatform requires Service Bus configuration. "
+                "Set HAYMAKER_SERVICEBUS_CONNECTION or HAYMAKER_SERVICEBUS_NAMESPACE, "
+                "or add service_bus.connection_string to ~/.haymaker/azure.yaml. "
+                "For local-only development, use FilePlatform instead."
+            )
 
-            conn_str = (
-                sb_cfg.connection_string.get_secret_value() if sb_cfg.connection_string else None
-            )
-            self._event_bus = ServiceBusEventBus(
-                connection_string=conn_str,
-                topic_name=sb_cfg.topic_name,
-                namespace=sb_cfg.namespace,
-            )
+        from .service_bus import ServiceBusEventBus
+
+        conn_str = sb_cfg.connection_string.get_secret_value() if sb_cfg.connection_string else None
+        self._event_bus = ServiceBusEventBus(
+            connection_string=conn_str,
+            topic_name=sb_cfg.topic_name,
+            namespace=sb_cfg.namespace,
+        )
 
     @property
     def config(self) -> AzureConfig:
