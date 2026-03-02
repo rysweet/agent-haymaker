@@ -45,6 +45,20 @@ class AzurePlatform(FilePlatform):
         super().__init__()
         self._config = config
 
+        # Replace local event bus with Service Bus dual-write when configured
+        sb_cfg = config.service_bus
+        if sb_cfg and (sb_cfg.connection_string or sb_cfg.namespace):
+            from .service_bus import ServiceBusEventBus
+
+            conn_str = (
+                sb_cfg.connection_string.get_secret_value() if sb_cfg.connection_string else None
+            )
+            self._event_bus = ServiceBusEventBus(
+                connection_string=conn_str,
+                topic_name=sb_cfg.topic_name,
+                namespace=sb_cfg.namespace,
+            )
+
     @property
     def config(self) -> AzureConfig:
         return self._config
